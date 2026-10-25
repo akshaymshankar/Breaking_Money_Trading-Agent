@@ -260,7 +260,7 @@ def main(argv=None):
     rp.add_argument("--no-open", action="store_true")
 
     d = sub.add_parser("demo", help="offline demo on synthetic prices")
-    d.add_argument("--days", type=int, default=15); d.add_argument("--seed", type=int, default=7)
+    d.add_argument("--days", type=int, default=10); d.add_argument("--seed", type=int, default=7)
     d.add_argument("--brain", choices=["auto", "claude-api", "claude-cli", "rules"]); d.add_argument("--no-open", action="store_true")
 
     f = sub.add_parser("fetch", help="download history for replay")

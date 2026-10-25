@@ -131,6 +131,9 @@ class PaperBroker:
         if qty < 1:
             return self._reject(ts, decision_id, s, "BUY", q, "not enough cash for one share")
         fill = self.fill_price("BUY", q, qty)
+        min_val = self.st.get("min_trade_value", 0)
+        if min_val and qty * fill < min_val:
+            return self._reject(ts, decision_id, s, "BUY", q, f"trade below the Rs {min_val:,} minimum for this profile")
         chg = charges_mod.compute("BUY", qty, fill, self.product, self.rates)
         while qty > 0 and qty * fill + chg.total > self.cash:
             qty -= 1

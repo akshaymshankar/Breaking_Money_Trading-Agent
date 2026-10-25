@@ -55,12 +55,30 @@ PROFILES = {
             "the win rate high, and SELL immediately if momentum stalls or price loses VWAP."
         ),
     },
+    "allin": {
+        # Maximum stakes: one position at a time, nearly all the cash, at least Rs 50,000 per trade.
+        "max_positions": 1,
+        "max_position_pct": 95,
+        "min_trade_value": 50000,
+        "max_daily_loss_pct": 8.0,
+        "min_confidence": 0.8,
+        "default_stop_loss_pct": 1.0,
+        "default_target_pct": 2.0,
+        "profile_notes": (
+            "ALL-IN PROFILE: one trade at a time with about 95% of equity (Rs 50,000 minimum), so every call is a big bet. "
+            "Only BUY the single best setup of the day: an opening-range breakout (price above or_high after 09:45) with "
+            "price above VWAP, SMA9 above SMA21, RSI 55-75 and volume at least 1.2x average. Give confidence >= 0.8 only "
+            "to that setup; otherwise HOLD. Use a stop about 1% below entry and a target about 2% above. SELL at once if "
+            "price falls back inside the opening range or below VWAP. Skipping a day is fine."
+        ),
+    },
 }
 
 
 def apply_profile(cfg: dict) -> dict:
     st = cfg["strategy"]
     st.setdefault("min_confidence", 0.0)
+    st.setdefault("min_trade_value", 0)
     st.setdefault("profile", "balanced")
     for k, v in PROFILES.get(st["profile"], {}).items():
         st[k] = v

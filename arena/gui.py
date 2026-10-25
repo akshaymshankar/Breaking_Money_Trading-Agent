@@ -124,6 +124,12 @@ class Controller:
             log.info("Coach review added to the dashboard.")
         return self._spawn("review", go)
 
+    def live_run(self):
+        cfg = load_config(self.config_path)
+        j = Journal(cfg["paths"]["db"])
+        run = j.one("SELECT id FROM runs WHERE mode='live' ORDER BY id DESC LIMIT 1")
+        return j, (run["id"] if run else None)
+
     def stop(self) -> str:
         if self.runner:
             self.runner.stop_requested = True
@@ -182,7 +188,7 @@ class Controller:
             ("market", "feed"): s["feed"] if s["feed"] in ("yahoo", "upstox") else "yahoo",
             ("market", "watchlist"): wl,
             ("strategy", "brain"): s["brain"] if s["brain"] in ("auto", "claude-cli", "claude-api", "rules") else "auto",
-            ("strategy", "profile"): "aggressive" if s.get("profile") == "aggressive" else "balanced",
+            ("strategy", "profile"): s.get("profile") if s.get("profile") in ("aggressive", "allin") else "balanced",
             ("strategy", "decision_minutes"): max(1, int(s["decision_minutes"])),
             ("strategy", "product"): "delivery" if s["product"] == "delivery" else "intraday",
             ("strategy", "max_position_pct"): float(s["max_position_pct"]),
@@ -246,6 +252,30 @@ def make_handler(ctl: Controller):
                     return self._send(200, EMPTY, "text/html")
                 html = re.sub(r'<meta http-equiv="refresh"[^>]*>', "", f.read_text(encoding="utf-8"))
                 return self._send(200, html, "text/html")
+            if path == "/api/days":
+                j, rid = ctl.live_run()
+                from .daily import run_days
+                return self._send(200, json.dumps({"days": run_days(j, rid) if rid else []}))
+            if path == "/download/day":
+                from urllib.parse import parse_qs, urlparse
+                from .daily import day_csv, day_html
+                qs = parse_qs(urlparse(self.path).query)
+                day, fmt = qs.get("date", [""])[0], qs.get("fmt", ["html"])[0]
+                j, rid = ctl.live_run()
+                if not rid or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+                    return self._send(404, "{}")
+                if fmt == "csv":
+                    body, ctype, ext = day_csv(j, rid, day), "text/csv", "csv"
+                else:
+                    body, ctype, ext = day_html(j, rid, day), "text/html", "html"
+                data = body.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", ctype + "; charset=utf-8")
+                if "view" not in qs:
+                    self.send_header("Content-Disposition", f'attachment; filename="arena-pnl-{day}.{ext}"')
+                self.end_headers()
+                self.wfile.write(data)
+                return
             self._send(404, "{}")
 
         def do_POST(self):
@@ -325,6 +355,7 @@ textarea{min-height:56px;resize:vertical}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
 details summary{cursor:pointer;font-weight:700}
 #log{font:11.5px/1.45 ui-monospace,Consolas,monospace;color:var(--ink-2);height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-word}
+.dayrow{display:flex;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line)}.dayrow b{flex:1;color:var(--ink)}.dayrow a{color:var(--accent);text-decoration:none;font-weight:700}
 #msg{min-height:18px;font-size:12px;color:var(--warn)}
 main{display:flex;flex-direction:column;min-width:0}
 .tabs{display:flex;gap:6px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--surface)}
@@ -355,12 +386,13 @@ iframe{flex:1;border:0;width:100%;background:var(--page)}
   </div>
   <button id="bdemo" onclick="post('/api/demo',{days:3});showTab('demo')">Run demo (made-up prices)</button>
   <div id="msg"></div>
+  <div class="box"><div class="small" style="margin-bottom:6px">Daily P&amp;L reports</div><div id="days" class="small">No trading days yet.</div></div>
   <details class="box"><summary>Settings</summary>
     <div class="grid2">
       <div><label>Starting capital ₹</label><input id="s_starting_capital" type="number"></div>
       <div><label>Challenge days</label><input id="s_challenge_days" type="number"></div>
       <div><label>Who decides</label><select id="s_brain"><option value="auto">Auto</option><option value="claude-cli">Claude (my login)</option><option value="claude-api">Claude (API key)</option><option value="rules">Rules (free, no AI)</option></select></div>
-      <div style="grid-column:1/-1"><label>Risk profile</label><select id="s_profile"><option value="balanced">Balanced (uses the numbers below)</option><option value="aggressive">Aggressive: 3 big bets, A+ setups only, 6% day limit</option></select></div>
+      <div style="grid-column:1/-1"><label>Risk profile</label><select id="s_profile"><option value="balanced">Balanced (uses the numbers below)</option><option value="aggressive">Aggressive: 3 big bets, A+ setups only, 6% day limit</option><option value="allin">All-in: 1 trade, ~95% of cash (₹50k+), breakouts only</option></select></div>
       <div><label>Price feed</label><select id="s_feed"><option value="yahoo">Yahoo (free)</option><option value="upstox">Upstox</option></select></div>
       <div><label>Decide every (min)</label><input id="s_decision_minutes" type="number"></div>
       <div><label>Style</label><select id="s_product"><option value="intraday">Intraday</option><option value="delivery">Hold overnight</option></select></div>
@@ -402,5 +434,7 @@ async function refresh(){
  const lg=$("log"),atBottom=lg.scrollTop+lg.clientHeight>=lg.scrollHeight-5;lg.textContent=s.log.join("\n");if(atBottom)lg.scrollTop=lg.scrollHeight;
  if(!loaded){for(const k in s.settings)if($("s_"+k))$("s_"+k).value=s.settings[k];loaded=true}
 }
-refresh();setInterval(refresh,3000);setInterval(reloadFrame,30000);
+async function loadDays(){const d=(await (await fetch("/api/days")).json()).days;if(!d.length)return;
+ $("days").innerHTML=d.map(x=>`<div class="dayrow"><b>${x}</b><a href="/download/day?date=${x}&view=1" target="_blank">View</a><a href="/download/day?date=${x}">Download</a><a href="/download/day?date=${x}&fmt=csv">CSV</a></div>`).join("")}
+refresh();loadDays();setInterval(refresh,3000);setInterval(loadDays,60000);setInterval(reloadFrame,30000);
 </script></body></html>"""

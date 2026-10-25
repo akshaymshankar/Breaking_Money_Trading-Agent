@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import time as _time
+from pathlib import Path
 from datetime import datetime, timedelta
 
 from . import insights, report
@@ -78,6 +79,11 @@ class Runner:
         log.info("=== Day %d closed: P&L Rs %+.2f, equity Rs %.2f ===", day_no, end_eq - self.day_start_equity, end_eq)
         self.day = None
         self.write_report()
+        try:
+            from .daily import save_day
+            save_day(self.j, self.run_id, d, Path(self.report_path).parent / "daily")
+        except Exception:
+            log.exception("Daily report failed")
 
     # ---- helpers -----------------------------------------------------
     def _quotes(self, symbols: list[str]):

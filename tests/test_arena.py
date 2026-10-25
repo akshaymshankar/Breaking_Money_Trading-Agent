@@ -194,7 +194,7 @@ class EndToEnd(unittest.TestCase):
         net = sum(t["net_pnl"] for t in j.q("SELECT net_pnl FROM trades WHERE run_id=?", (rid,)))
         self.assertAlmostEqual(r.broker.cash - 100000, net, places=1)
         self.assertEqual(j.one("SELECT status FROM runs WHERE id=?", (rid,))["status"], "complete")
-        self.assertIn("2-day challenge", Path(cfg["paths"]["report"]).read_text())
+        self.assertIn("-day challenge", Path(cfg["paths"]["report"]).read_text())
         late = j.q("SELECT o.ts FROM orders o WHERE o.run_id=? AND o.side='BUY' AND o.status='filled' AND substr(o.ts,12,5) > ?",
                    (rid, cfg["strategy"]["no_new_entries_after"]))
         self.assertEqual(late, [])

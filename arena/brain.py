@@ -160,11 +160,20 @@ class RulesBrain:
             if "sma9" not in s:
                 d["reason"] = "Not enough bars yet."
             elif sym in held:
-                if s["sma9"] < s["sma21"] or s["rsi14"] > 75 or not s["above_vwap"]:
+                back_in_range = st.get("profile") == "allin" and s.get("or_high") and s["ltp"] < s["or_high"]
+                if s["sma9"] < s["sma21"] or s["rsi14"] > 75 or not s["above_vwap"] or back_in_range:
                     d.update(action="SELL", confidence=0.6,
                              reason=f"Trend weakening: SMA9 {s['sma9']} vs SMA21 {s['sma21']}, RSI {s['rsi14']}, above VWAP={s['above_vwap']}.")
                 else:
                     d["reason"] = f"Trend intact: SMA9 {s['sma9']} > SMA21 {s['sma21']}, RSI {s['rsi14']}."
+            elif ctx["entries_allowed"] and st.get("profile") == "allin":
+                orh = s.get("or_high")
+                if (orh and s["ltp"] > orh and s["sma9"] > s["sma21"] and 55 <= s["rsi14"] <= 75 and s["above_vwap"]
+                        and (s.get("vol_ratio") or 0) >= 1.2):
+                    d.update(action="BUY", allocation_pct=st["max_position_pct"], confidence=0.85,
+                             stop_loss_pct=st["default_stop_loss_pct"], target_pct=st["default_target_pct"],
+                             reason=f"Opening-range breakout: {s['ltp']} above OR high {orh}, volume {s['vol_ratio']}x, "
+                                    f"RSI {s['rsi14']}, above VWAP {s['vwap']}.")
             elif ctx["entries_allowed"] and st.get("profile") == "aggressive":
                 near_high = s["ltp"] >= s["day_high"] * 0.995
                 if (s["sma9"] > s["sma21"] and 55 <= s["rsi14"] <= 72 and s["above_vwap"] and near_high
