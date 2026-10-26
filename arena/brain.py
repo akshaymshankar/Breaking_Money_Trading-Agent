@@ -24,7 +24,7 @@ DECISION_SCHEMA = {
                 "type": "object",
                 "properties": {
                     "symbol": {"type": "string"},
-                    "action": {"type": "string", "enum": ["BUY", "SELL", "HOLD"]},
+                    "action": {"type": "string", "enum": ["BUY", "SHORT", "SELL", "HOLD"]},
                     "allocation_pct": {"type": "number"},
                     "confidence": {"type": "number"},
                     "stop_loss_pct": {"type": "number"},
@@ -45,9 +45,9 @@ All money is virtual. A separate deterministic engine executes your calls with s
 so only trade when the expected move clearly beats roughly 0.1% round-trip costs.
 
 Rules of the arena:
-- Long-only. BUY opens a position in a stock you do not hold. SELL closes a position you hold. HOLD means do nothing.
-- allocation_pct is the % of total equity for a BUY (the engine caps it at {max_pos}%). Use 0 for SELL/HOLD.
-- stop_loss_pct and target_pct are distances from entry in %, for BUY. Use 0 for SELL/HOLD.
+- {sides}
+- allocation_pct is the % of total equity for a BUY or SHORT (the engine caps it at {max_pos}%). Use 0 for SELL/HOLD.
+- stop_loss_pct and target_pct are distances from entry in %, for BUY or SHORT. Use 0 for SELL/HOLD.
 - confidence is 0 to 1.
 - Product: {product}. {product_note}
 - Max {max_positions} open positions. Do not open new positions after {cutoff} IST.
@@ -62,12 +62,17 @@ def build_prompt(ctx: dict, cfg: dict) -> tuple[str, str]:
     product_note = ("Intraday positions are force-closed at " + st["square_off_time"] + " IST."
                     if st["product"] == "intraday" else "Positions may be carried overnight.")
     system = SYSTEM.format(
+        sides=("BUY opens a long in a stock you do not hold. SHORT sells a stock you do not hold to buy it back "
+               "lower the same day (profits when price falls; stop is above entry, target below; positions show negative qty). "
+               "SELL closes any open position, long or short. HOLD means do nothing."
+               if st.get("allow_short") and st["product"] == "intraday" else
+               "Long-only. BUY opens a position in a stock you do not hold. SELL closes a position you hold. HOLD means do nothing."),
         max_pos=st["max_position_pct"], product=st["product"], product_note=product_note,
         max_positions=st["max_positions"], cutoff=st["no_new_entries_after"],
         strategy_notes="\n".join(x for x in [
             st.get("profile_notes", ""),
             ("Strategy notes from the user:\n" + st["notes"]) if st.get("notes") else "",
-            (f"BUY calls below confidence {st['min_confidence']} are rejected by the engine." if st.get("min_confidence") else ""),
+            (f"BUY/SHORT calls below confidence {st['min_confidence']} are rejected by the engine." if st.get("min_confidence") else ""),
         ] if x),
     )
     user = "Current state (JSON):\n" + json.dumps(ctx, indent=1, default=str) + "\n\nReturn your decisions."
@@ -159,6 +164,12 @@ class RulesBrain:
                  "stop_loss_pct": 0, "target_pct": 0, "reason": "No clear setup."}
             if "sma9" not in s:
                 d["reason"] = "Not enough bars yet."
+            elif sym in held and held[sym]["qty"] < 0:
+                if s["sma9"] > s["sma21"] or s["above_vwap"] or (s.get("or_low") and s["ltp"] > s["or_low"]):
+                    d.update(action="SELL", confidence=0.6,
+                             reason=f"Short no longer working: SMA9 {s['sma9']} vs SMA21 {s['sma21']}, above VWAP={s['above_vwap']}.")
+                else:
+                    d["reason"] = f"Downtrend intact: SMA9 {s['sma9']} < SMA21 {s['sma21']}, RSI {s['rsi14']}."
             elif sym in held:
                 back_in_range = st.get("profile") == "allin" and s.get("or_high") and s["ltp"] < s["or_high"]
                 if s["sma9"] < s["sma21"] or s["rsi14"] > 75 or not s["above_vwap"] or back_in_range:
@@ -174,6 +185,13 @@ class RulesBrain:
                              stop_loss_pct=st["default_stop_loss_pct"], target_pct=st["default_target_pct"],
                              reason=f"Opening-range breakout: {s['ltp']} above OR high {orh}, volume {s['vol_ratio']}x, "
                                     f"RSI {s['rsi14']}, above VWAP {s['vwap']}.")
+                orl = s.get("or_low")
+                if (d["action"] == "HOLD" and st.get("allow_short") and orl and s["ltp"] < orl and s["sma9"] < s["sma21"]
+                        and 25 <= s["rsi14"] <= 45 and not s["above_vwap"] and (s.get("vol_ratio") or 0) >= 1.2):
+                    d.update(action="SHORT", allocation_pct=st["max_position_pct"], confidence=0.85,
+                             stop_loss_pct=st["default_stop_loss_pct"], target_pct=st["default_target_pct"],
+                             reason=f"Opening-range breakdown: {s['ltp']} below OR low {orl}, volume {s['vol_ratio']}x, "
+                                    f"RSI {s['rsi14']}, below VWAP {s['vwap']}.")
             elif ctx["entries_allowed"] and st.get("profile") == "aggressive":
                 near_high = s["ltp"] >= s["day_high"] * 0.995
                 if (s["sma9"] > s["sma21"] and 55 <= s["rsi14"] <= 72 and s["above_vwap"] and near_high

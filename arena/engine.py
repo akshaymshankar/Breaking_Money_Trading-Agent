@@ -63,7 +63,7 @@ class PaperBroker:
 
     # ---- state -------------------------------------------------------
     @property
-    def holdings_value(self) -> float:
+    def holdings_value(self) -> float:  # shorts count negative (shares owed back)
         return sum(p.value for p in self.positions.values())
 
     @property
@@ -118,63 +118,72 @@ class PaperBroker:
         return slip
 
     def buy(self, ts: datetime, q: Quote, alloc_pct: float, stop_pct: float, target_pct: float,
-            reason: str, decision_id: int | None = None) -> tuple[bool, str]:
+            reason: str, decision_id: int | None = None, short: bool = False) -> tuple[bool, str]:
+        """Open a position. short=True sells first and buys back later (intraday only);
+        a short is stored with negative qty so equity and P&L stay cash + qty * price."""
         s = q.symbol
+        side = "SELL" if short else "BUY"
+        if short and self.product != "intraday":
+            return self._reject(ts, decision_id, s, side, q, "shorting is intraday only")
         if s in self.positions:
-            return self._reject(ts, decision_id, s, "BUY", q, "already holding")
+            return self._reject(ts, decision_id, s, side, q, "already holding")
         if len(self.positions) >= self.st["max_positions"]:
-            return self._reject(ts, decision_id, s, "BUY", q, "max open positions reached")
+            return self._reject(ts, decision_id, s, side, q, "max open positions reached")
         alloc_pct = min(max(alloc_pct, 0), self.st["max_position_pct"])
-        budget = min(self.equity * alloc_pct / 100, self.cash * 0.995)
-        est = self.fill_price("BUY", q, 1)
+        # Shorts need the same free cash as margin, so one budget rule covers both sides.
+        free = self.cash + sum(p.value for p in self.positions.values() if p.qty < 0) * 2
+        budget = min(self.equity * alloc_pct / 100, free * 0.995)
+        est = self.fill_price(side, q, 1)
         qty = min(int(budget // est), self.max_qty_by_liquidity(q))
         if qty < 1:
-            return self._reject(ts, decision_id, s, "BUY", q, "not enough cash for one share")
-        fill = self.fill_price("BUY", q, qty)
+            return self._reject(ts, decision_id, s, side, q, "not enough cash for one share")
+        fill = self.fill_price(side, q, qty)
         min_val = self.st.get("min_trade_value", 0)
         if min_val and qty * fill < min_val:
-            return self._reject(ts, decision_id, s, "BUY", q, f"trade below the Rs {min_val:,} minimum for this profile")
-        chg = charges_mod.compute("BUY", qty, fill, self.product, self.rates)
-        while qty > 0 and qty * fill + chg.total > self.cash:
+            return self._reject(ts, decision_id, s, side, q, f"trade below the Rs {min_val:,} minimum for this profile")
+        chg = charges_mod.compute(side, qty, fill, self.product, self.rates)
+        while qty > 0 and qty * fill + chg.total > free:
             qty -= 1
-            chg = charges_mod.compute("BUY", qty, fill, self.product, self.rates)
+            chg = charges_mod.compute(side, qty, fill, self.product, self.rates)
         if qty < 1:
-            return self._reject(ts, decision_id, s, "BUY", q, "not enough cash after charges")
-        self.cash -= qty * fill + chg.total
+            return self._reject(ts, decision_id, s, side, q, "not enough cash after charges")
+        sign = -1 if short else 1
+        self.cash -= sign * qty * fill + chg.total
         self.total_charges += chg.total
-        self.total_slippage += self._order(ts.isoformat(), decision_id, s, "BUY", qty, q.ltp, fill, chg, "ai", "filled", reason[:200])
+        self.total_slippage += self._order(ts.isoformat(), decision_id, s, side, qty, q.ltp, fill, chg, "ai", "filled", reason[:200])
         self.positions[s] = Position(
-            symbol=s, qty=qty, avg_price=fill, stop=round(fill * (1 - stop_pct / 100), 2),
-            target=round(fill * (1 + target_pct / 100), 2), opened_at=ts.isoformat(),
+            symbol=s, qty=sign * qty, avg_price=fill, stop=round(fill * (1 - sign * stop_pct / 100), 2),
+            target=round(fill * (1 + sign * target_pct / 100), 2), opened_at=ts.isoformat(),
             entry_charges=chg.total, entry_reason=reason[:300], last_price=q.ltp,
         )
         self._save_positions()
-        return True, f"BUY {qty} {s} @ {fill:.2f} (quote {q.ltp:.2f}, charges {chg.total:.2f})"
+        return True, f"{'SHORT' if short else 'BUY'} {qty} {s} @ {fill:.2f} (quote {q.ltp:.2f}, charges {chg.total:.2f})"
 
     def sell(self, ts: datetime, q: Quote, trigger: str, reason: str = "", decision_id: int | None = None) -> tuple[bool, str]:
         s = q.symbol
         p = self.positions.get(s)
         if not p:
             return self._reject(ts, decision_id, s, "SELL", q, "no position (long-only engine)")
-        qty = p.qty
-        fill = self.fill_price("SELL", q, qty)
-        chg = charges_mod.compute("SELL", qty, fill, self.product, self.rates)
-        self.cash += qty * fill - chg.total
+        qty = abs(p.qty)
+        side = "BUY" if p.qty < 0 else "SELL"  # a short is closed by buying back
+        fill = self.fill_price(side, q, qty)
+        chg = charges_mod.compute(side, qty, fill, self.product, self.rates)
+        self.cash += (fill if p.qty > 0 else -fill) * qty - chg.total
         self.total_charges += chg.total
-        self.total_slippage += self._order(ts.isoformat(), decision_id, s, "SELL", qty, q.ltp, fill, chg, trigger, "filled", reason[:200])
-        gross = (fill - p.avg_price) * qty
+        self.total_slippage += self._order(ts.isoformat(), decision_id, s, side, qty, q.ltp, fill, chg, trigger, "filled", reason[:200])
+        gross = (fill - p.avg_price) * p.qty
         net = gross - p.entry_charges - chg.total
         self.realized += net
         hold = (ts - datetime.fromisoformat(p.opened_at)).total_seconds() / 60
         self.j.x(
             "INSERT INTO trades(run_id, symbol, qty, entry_ts, entry_price, exit_ts, exit_price, gross_pnl, charges, net_pnl, exit_reason, hold_minutes, entry_reason) "
             "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (self.run_id, s, qty, p.opened_at, p.avg_price, ts.isoformat(), fill, round(gross, 2),
+            (self.run_id, s, p.qty, p.opened_at, p.avg_price, ts.isoformat(), fill, round(gross, 2),
              round(p.entry_charges + chg.total, 2), round(net, 2), trigger, round(hold, 1), p.entry_reason),
         )
         del self.positions[s]
         self._save_positions()
-        return True, f"SELL {qty} {s} @ {fill:.2f} ({trigger}) net {net:+.2f}"
+        return True, f"{'COVER' if p.qty < 0 else 'SELL'} {qty} {s} @ {fill:.2f} ({trigger}) net {net:+.2f}"
 
     def _reject(self, ts, decision_id, symbol, side, q, why):
         self._order(ts.isoformat(), decision_id, symbol, side, 0, q.ltp, 0, None, "ai", "rejected", why)
@@ -188,9 +197,10 @@ class PaperBroker:
             if not q:
                 continue
             p = self.positions[s]
-            if q.ltp <= p.stop:
+            sign = 1 if p.qty > 0 else -1
+            if sign * (q.ltp - p.stop) <= 0:
                 msgs.append(self.sell(ts, q, "stop_loss", f"price {q.ltp} hit stop {p.stop}")[1])
-            elif q.ltp >= p.target:
+            elif sign * (q.ltp - p.target) >= 0:
                 msgs.append(self.sell(ts, q, "target", f"price {q.ltp} hit target {p.target}")[1])
         return msgs
 

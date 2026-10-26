@@ -53,7 +53,7 @@ def day_csv(j: Journal, run_id: int, day: str) -> str:
                 "gross_pnl", "charges", "net_pnl", "exit_reason", "why_claude_bought", "exit_detail"])
     for t in d["trades"]:
         w.writerow([day, t["symbol"], t["qty"], t["entry_ts"][11:19], t["entry_price"], t["exit_ts"][11:19], t["exit_price"],
-                    round(t["qty"] * t["entry_price"], 2), t["gross_pnl"], t["charges"], t["net_pnl"], t["exit_reason"],
+                    round(abs(t["qty"]) * t["entry_price"], 2), t["gross_pnl"], t["charges"], t["net_pnl"], t["exit_reason"],
                     t["entry_reason"], t["exit_note"]])
     return buf.getvalue()
 
@@ -84,11 +84,11 @@ def day_html(j: Journal, run_id: int, day: str) -> str:
         return (f'<div class="trade"><div class="th"><b>#{i} {_e(t["symbol"])}</b>'
                 f'<span class="{_cls(t["net_pnl"])}">{_rs(t["net_pnl"], True)}</span></div>'
                 f'<div class="tg">'
-                f'<div><span>Bought</span>{t["qty"]} @ ₹{t["entry_price"]:,.2f} at {t["entry_ts"][11:16]}</div>'
-                f'<div><span>Sold</span>@ ₹{t["exit_price"]:,.2f} at {t["exit_ts"][11:16]} ({hold})</div>'
-                f'<div><span>Trade size</span>{_rs(t["qty"] * t["entry_price"])}</div>'
+                f'<div><span>{"Shorted" if t["qty"] < 0 else "Bought"}</span>{abs(t["qty"])} @ ₹{t["entry_price"]:,.2f} at {t["entry_ts"][11:16]}</div>'
+                f'<div><span>{"Bought back" if t["qty"] < 0 else "Sold"}</span>@ ₹{t["exit_price"]:,.2f} at {t["exit_ts"][11:16]} ({hold})</div>'
+                f'<div><span>Trade size</span>{_rs(abs(t["qty"]) * t["entry_price"])}</div>'
                 f'<div><span>Gross / charges</span>{_rs(t["gross_pnl"], True)} / {_rs(t["charges"])}</div></div>'
-                f'<p><span class="lbl">Why {who} bought:</span> {_e(t["entry_reason"]) or "—"}</p>'
+                f'<p><span class="lbl">Why {who} {"shorted" if t["qty"] < 0 else "bought"}:</span> {_e(t["entry_reason"]) or "—"}</p>'
                 f'<p><span class="lbl">Why it closed ({_e(exit_names.get(t["exit_reason"], t["exit_reason"]))}):</span> {_e(t["exit_note"]) or "—"}</p></div>')
 
     trades_html = "".join(trade_block(i + 1, t) for i, t in enumerate(trades)) or '<p class="muted">No trades closed this day. The agent stayed in cash.</p>'

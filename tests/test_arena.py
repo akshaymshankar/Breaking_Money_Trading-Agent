@@ -133,6 +133,26 @@ class Engine(unittest.TestCase):
         self.assertTrue(msgs and "stop_loss" in msgs[0])
         self.assertEqual(self.b.positions, {})
 
+    def test_short_round_trip(self):
+        ok, _ = self.b.buy(self.t, q(ltp=1000), 20, 1.0, 2, "down", short=True)
+        self.assertTrue(ok)
+        p = self.b.positions["TEST"]
+        self.assertLess(p.qty, 0)
+        self.assertGreater(p.stop, p.avg_price)
+        self.assertLess(p.target, p.avg_price)
+        self.assertAlmostEqual(self.b.equity, 100000 - p.entry_charges + p.qty * (p.last_price - p.avg_price), places=1)
+        msgs = self.b.check_exits(self.t, {"TEST": q(ltp=975)})
+        self.assertTrue(msgs and "target" in msgs[0])
+        tr = self.j.q("SELECT * FROM trades")[0]
+        self.assertGreater(tr["net_pnl"], 0)
+        self.assertAlmostEqual(self.b.cash - 100000, tr["net_pnl"], places=1)
+
+    def test_short_stop_above_entry(self):
+        self.b.buy(self.t, q(ltp=1000), 20, 1.0, 2, "down", short=True)
+        msgs = self.b.check_exits(self.t, {"TEST": q(ltp=1015)})
+        self.assertTrue(msgs and "stop_loss" in msgs[0])
+        self.assertLess(self.j.q("SELECT * FROM trades")[0]["net_pnl"], 0)
+
     def test_state_survives_restart(self):
         self.b.buy(self.t, q(ltp=1000), 20, 1.5, 3, "in")
         b2 = PaperBroker(self.j, self.rid, self.cfg)
