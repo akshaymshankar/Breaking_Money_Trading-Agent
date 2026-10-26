@@ -130,9 +130,11 @@ class PaperBroker:
         if len(self.positions) >= self.st["max_positions"]:
             return self._reject(ts, decision_id, s, side, q, "max open positions reached")
         alloc_pct = min(max(alloc_pct, 0), self.st["max_position_pct"])
-        # Shorts need the same free cash as margin, so one budget rule covers both sides.
-        free = self.cash + sum(p.value for p in self.positions.values() if p.qty < 0) * 2
-        budget = min(self.equity * alloc_pct / 100, free * 0.995)
+        # Margin: each open position locks |value| / leverage of equity, long or short.
+        # Intraday (MIS) may use leverage; delivery is always 1x.
+        lev = max(1.0, float(self.st.get("leverage", 1))) if self.product == "intraday" else 1.0
+        free = self.equity - sum(abs(p.value) for p in self.positions.values()) / lev
+        budget = min(self.equity * alloc_pct / 100 * lev, free * lev * 0.995)
         est = self.fill_price(side, q, 1)
         qty = min(int(budget // est), self.max_qty_by_liquidity(q))
         if qty < 1:
@@ -142,7 +144,7 @@ class PaperBroker:
         if min_val and qty * fill < min_val:
             return self._reject(ts, decision_id, s, side, q, f"trade below the Rs {min_val:,} minimum for this profile")
         chg = charges_mod.compute(side, qty, fill, self.product, self.rates)
-        while qty > 0 and qty * fill + chg.total > free:
+        while qty > 0 and qty * fill / lev + chg.total > free:
             qty -= 1
             chg = charges_mod.compute(side, qty, fill, self.product, self.rates)
         if qty < 1:

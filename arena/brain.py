@@ -46,7 +46,7 @@ so only trade when the expected move clearly beats roughly 0.1% round-trip costs
 
 Rules of the arena:
 - {sides}
-- allocation_pct is the % of total equity for a BUY or SHORT (the engine caps it at {max_pos}%). Use 0 for SELL/HOLD.
+- allocation_pct is the % of total equity for a BUY or SHORT (the engine caps it at {max_pos}%{lev_note}). Use 0 for SELL/HOLD.
 - stop_loss_pct and target_pct are distances from entry in %, for BUY or SHORT. Use 0 for SELL/HOLD.
 - confidence is 0 to 1.
 - Product: {product}. {product_note}
@@ -67,6 +67,7 @@ def build_prompt(ctx: dict, cfg: dict) -> tuple[str, str]:
                "SELL closes any open position, long or short. HOLD means do nothing."
                if st.get("allow_short") and st["product"] == "intraday" else
                "Long-only. BUY opens a position in a stock you do not hold. SELL closes a position you hold. HOLD means do nothing."),
+        lev_note=(f", then multiplies by {st['leverage']}x intraday leverage" if st.get("leverage", 1) > 1 and st["product"] == "intraday" else ""),
         max_pos=st["max_position_pct"], product=st["product"], product_note=product_note,
         max_positions=st["max_positions"], cutoff=st["no_new_entries_after"],
         strategy_notes="\n".join(x for x in [

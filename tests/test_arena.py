@@ -153,6 +153,19 @@ class Engine(unittest.TestCase):
         self.assertTrue(msgs and "stop_loss" in msgs[0])
         self.assertLess(self.j.q("SELECT * FROM trades")[0]["net_pnl"], 0)
 
+    def test_intraday_leverage(self):
+        self.cfg["strategy"].update(leverage=5, max_position_pct=100)
+        b = PaperBroker(self.j, self.rid, self.cfg)
+        ok, _ = b.buy(self.t, q(ltp=1000), 100, 1.0, 2, "lev")
+        self.assertTrue(ok)
+        p = b.positions["TEST"]
+        self.assertGreater(p.qty * p.avg_price, 400000)
+        self.assertLessEqual(p.qty * p.avg_price, 500000)
+        b.sell(self.t, q(ltp=990), "ai", "out")
+        tr = self.j.q("SELECT * FROM trades")[0]
+        self.assertLess(tr["net_pnl"], -4000)  # 1% against a 5x position is about 5% of equity
+        self.assertAlmostEqual(b.cash - 100000, tr["net_pnl"], places=1)
+
     def test_state_survives_restart(self):
         self.b.buy(self.t, q(ltp=1000), 20, 1.5, 3, "in")
         b2 = PaperBroker(self.j, self.rid, self.cfg)
