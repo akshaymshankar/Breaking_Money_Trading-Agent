@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import json
 import logging
 import os
 import sys
@@ -79,6 +80,35 @@ def cmd_run(a, cfg):
         log.info("Stopped by you. Positions and history are saved; `python -m arena run` resumes.")
         from .report import write
         write(j, run_id, cfg["paths"]["report"], live=False)
+
+
+def cmd_carry_over(a, cfg):
+    """Start a fresh live run that already has earlier days' closing equity,
+    so the challenge continues from the next day (paper only, no positions)."""
+    from datetime import timedelta
+    from .clock import is_trading_day
+
+    holidays = set(cfg.get("market", {}).get("holidays", []))
+    j = Journal(cfg["paths"]["db"])
+    for r in j.q("SELECT id FROM runs WHERE status='active' AND mode='live'"):
+        j.x("UPDATE runs SET status='archived', ended_at=? WHERE id=?", (now_ist().isoformat(), r["id"]))
+    dates, d = [], now_ist().date() - timedelta(days=1)
+    while len(dates) < len(a.equity):
+        if is_trading_day(d, holidays):
+            dates.insert(0, d)
+        d -= timedelta(days=1)
+    cap = cfg["account"]["starting_capital"]
+    run_id = _make_run(j, cfg, a.name or f"Live challenge from {dates[0]:%d %b %Y}", "live", cfg["market"]["feed"], now_ist())
+    prev = cap
+    for n, (day, eq) in enumerate(zip(dates, a.equity), 1):
+        j.x("INSERT INTO days VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (run_id, day.isoformat(), n, round(prev, 2), eq, round(eq - prev, 2), 0, 0, 0, 0, 0,
+             json.dumps(["Carried over from an earlier session (no trade detail recorded)."])))
+        j.x("INSERT INTO equity VALUES (?,?,?,?,?,?,?,?)",
+            (run_id, f"{day.isoformat()}T15:30:00+05:30", eq, 0, eq, round(eq - cap, 2), 0, 0))
+        prev = eq
+    j.x("UPDATE account SET cash=?, realized=? WHERE run_id=?", (prev, round(prev - cap, 2), run_id))
+    print(f"Live run #{run_id}: {len(dates)} days carried over, equity Rs {prev:,.2f}. Day {len(dates) + 1} starts at the next market open.")
 
 
 def cmd_replay(a, cfg):
@@ -273,6 +303,9 @@ def main(argv=None):
     rep.add_argument("--brain", choices=["claude-api", "claude-cli"]); rep.add_argument("--no-open", action="store_true")
 
     sub.add_parser("status", help="list runs and their P&L")
+    co = sub.add_parser("carry-over", help="start a live run from earlier days' closing equity")
+    co.add_argument("equity", type=float, nargs="+", help="closing equity of day 1, day 2, ...")
+    co.add_argument("--name")
     c = sub.add_parser("compete", help="several brains on the same replay data")
     c.add_argument("--brains", default="rules,claude-api"); c.add_argument("--start"); c.add_argument("--end"); c.add_argument("--days", type=int)
     sub.add_parser("upstox-login", help="get today's Upstox market-data token")
@@ -285,7 +318,7 @@ def main(argv=None):
     install_guards(cfg)
     setup_logging(cfg)
     {"run": cmd_run, "replay": cmd_replay, "demo": cmd_demo, "fetch": cmd_fetch, "report": cmd_report,
-     "status": cmd_status, "compete": cmd_compete, "upstox-login": cmd_upstox_login, "check": cmd_check, "gui": cmd_gui}[a.cmd](a, cfg)
+     "status": cmd_status, "carry-over": cmd_carry_over, "compete": cmd_compete, "upstox-login": cmd_upstox_login, "check": cmd_check, "gui": cmd_gui}[a.cmd](a, cfg)
 
 
 if __name__ == "__main__":
