@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT))
 
 from arena import charges, safety  # noqa: E402
 from arena.clock import IST  # noqa: E402
+from arena.config import ROOT  # noqa: E402
 from arena.config import load_config  # noqa: E402
 from arena.db import Journal  # noqa: E402
 from arena.engine import PaperBroker  # noqa: E402
@@ -23,7 +24,11 @@ from arena.runner import Runner  # noqa: E402
 
 
 def cfg_tmp(tmp: str) -> dict:
-    cfg = load_config()
+    # Tests run on the shipped balanced settings, whatever profile the user's config.toml picks.
+    src = (ROOT / "config.toml").read_text(encoding="utf-8-sig")
+    src = re.sub(r"(?m)^(profile|rules_fallback)\s*=.*$", "", src)
+    Path(tmp, "base.toml").write_text(src, encoding="utf-8")
+    cfg = load_config(Path(tmp, "base.toml"))
     cfg["paths"].update(db=f"{tmp}/t.db", report=f"{tmp}/r.html", data_dir=tmp, log=f"{tmp}/l.log")
     cfg["strategy"]["brain"] = "rules"
     return cfg

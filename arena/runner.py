@@ -53,7 +53,10 @@ class Runner:
 
     def open_day(self, now: datetime) -> None:
         self.day = now.date()
-        self.day_start_equity = self.broker.equity
+        # A restart mid-day keeps the day's real opening equity (last snapshot before today).
+        prev = self.j.one("SELECT equity FROM equity WHERE run_id=? AND substr(ts,1,10)<? ORDER BY ts DESC LIMIT 1",
+                          (self.run_id, self.day.isoformat()))
+        self.day_start_equity = prev["equity"] if prev else self.broker.equity
         self.killed = False
         self.next_decision = now
         log.info("=== Day %d  %s  equity Rs %.2f ===", self.days_done() + 1, self.day, self.day_start_equity)
