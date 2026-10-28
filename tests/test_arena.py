@@ -325,6 +325,12 @@ class TimeTravel(unittest.TestCase):
             html = out.read_text(encoding="utf-8")
             self.assertIn("LT · Tue 27 Oct 2026", html)
             self.assertIn("<svg", html)
+            at = bars.index[100]
+            fc = timetravel.forecast(bars.loc[:at], at, stop=990, target=1020)
+            self.assertEqual(fc, {})  # no bars left that day in the visible data: nothing to project
+            fc = timetravel.forecast(bars, at, stop=bars["close"].iloc[100] * 0.99, target=bars["close"].iloc[100] * 1.02, n=2000)
+            self.assertEqual(len(fc["p50"]), len(fc["times"]))
+            self.assertLessEqual(fc["p_target"] + fc["p_stop"], 1.0)
             j = Journal(Path(tmp) / "timetravel.db")
             seen = [r["ts"][:10] for r in j.q("SELECT ts FROM decisions")]
             self.assertTrue(seen and set(seen) == {"2026-10-27"})
