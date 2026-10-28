@@ -10,9 +10,11 @@ done by the engine.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
+from pathlib import Path
 
 DECISION_SCHEMA = {
     "type": "object",
@@ -124,9 +126,9 @@ class ClaudeCLIBrain:
     name = "claude-cli"
 
     def __init__(self, cfg: dict):
-        self.exe = shutil.which("claude")
+        self.exe = find_claude()
         if not self.exe:
-            raise RuntimeError("Claude Code CLI not found on PATH. Install it or use brain = 'claude-api'.")
+            raise RuntimeError("Claude Code CLI not found. Install Claude Code (or the Claude desktop app) or use brain = 'claude-api'.")
         self.cfg = cfg
         self.model = cfg["strategy"].get("cli_model") or ""
 
@@ -214,10 +216,26 @@ class RulesBrain:
         raise RuntimeError("rules brain cannot write narrative insights")
 
 
+def find_claude() -> str | None:
+    """The `claude` CLI: on PATH, or where the Claude desktop app / installers put it."""
+    exe = shutil.which("claude")
+    if exe:
+        return exe
+    home = Path.home()
+    roots = [home / ".local" / "bin", home / ".claude" / "local", Path(os.environ.get("APPDATA", home)) / "npm"]
+    for r in roots:
+        for name in ("claude.exe", "claude.cmd", "claude"):
+            if (r / name).is_file():
+                return str(r / name)
+    app = Path(os.environ.get("APPDATA", home / "AppData" / "Roaming")) / "Claude" / "claude-code"
+    found = sorted(app.glob("**/claude.exe"), key=lambda f: f.stat().st_mtime, reverse=True) if app.is_dir() else []
+    return str(found[0]) if found else None
+
+
 def make_brain(cfg: dict):
     name = cfg["strategy"]["brain"]
     if name == "auto":  # Claude Code login if available, else API key, else free rules
         import os
-        name = "claude-cli" if shutil.which("claude") else "claude-api" if os.environ.get("ANTHROPIC_API_KEY") else "rules"
+        name = "claude-cli" if find_claude() else "claude-api" if os.environ.get("ANTHROPIC_API_KEY") else "rules"
         cfg["strategy"]["brain"] = name
     return {"claude-api": ClaudeAPIBrain, "claude-cli": ClaudeCLIBrain, "rules": RulesBrain}[name](cfg)

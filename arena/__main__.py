@@ -37,8 +37,8 @@ def _brain_cfg(cfg: dict, brain: str | None) -> dict:
     if brain:
         cfg["strategy"]["brain"] = brain
     if cfg["strategy"]["brain"] == "auto":
-        import shutil
-        cfg["strategy"]["brain"] = ("claude-cli" if shutil.which("claude")
+        from .brain import find_claude
+        cfg["strategy"]["brain"] = ("claude-cli" if find_claude()
                                     else "claude-api" if os.environ.get("ANTHROPIC_API_KEY") else "rules")
     return cfg
 
@@ -264,8 +264,9 @@ def cmd_check(a, cfg):
     if brain == "claude-api":
         print("  ok   ANTHROPIC_API_KEY set" if os.environ.get("ANTHROPIC_API_KEY") else "  WARN ANTHROPIC_API_KEY not set (or use `ant auth login`)")
     elif brain == "claude-cli":
-        import shutil
-        print("  ok   claude CLI found" if shutil.which("claude") else "  FAIL claude CLI not on PATH"); ok = ok and bool(shutil.which("claude"))
+        from .brain import find_claude
+        exe = find_claude()
+        print(f"  ok   claude CLI found: {exe}" if exe else "  FAIL claude CLI not found"); ok = ok and bool(exe)
     print("\nAll good." if ok else "\nSome checks need attention.")
 
 
