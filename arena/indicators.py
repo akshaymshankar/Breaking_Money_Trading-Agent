@@ -39,6 +39,16 @@ def snapshot(q: Quote, bars: pd.DataFrame) -> dict:
         "atr_pct": round(float(tr.rolling(14).mean().iloc[-1] / c.iloc[-1] * 100), 2),
         "mom_30m_pct": round(float((c.iloc[-1] / c.iloc[-7] - 1) * 100), 2),
         "vol_ratio": round(float(bars["volume"].iloc[-2] / vol_avg), 2) if vol_avg else None,
+        # Opening range = first 30 minutes (09:15-09:45). Breakouts above it are a well-known intraday setup.
+        **_opening_range(today),
         "last6_closes": [round(float(x), 2) for x in c.iloc[-6:]],
     })
     return snap
+
+
+def _opening_range(today: pd.DataFrame) -> dict:
+    t = today.index.time
+    first = today[[(x.hour, x.minute) < (9, 45) for x in t]]
+    if len(first) < 2 or len(first) == len(today):
+        return {"or_high": None, "or_low": None}
+    return {"or_high": round(float(first["high"].max()), 2), "or_low": round(float(first["low"].min()), 2)}

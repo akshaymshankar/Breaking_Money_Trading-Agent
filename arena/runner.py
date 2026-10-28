@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import time as _time
+from pathlib import Path
 from datetime import datetime, timedelta
 
 from . import insights, report
@@ -52,7 +53,10 @@ class Runner:
 
     def open_day(self, now: datetime) -> None:
         self.day = now.date()
-        self.day_start_equity = self.broker.equity
+        # A restart mid-day keeps the day's real opening equity (last snapshot before today).
+        prev = self.j.one("SELECT equity FROM equity WHERE run_id=? AND substr(ts,1,10)<? ORDER BY ts DESC LIMIT 1",
+                          (self.run_id, self.day.isoformat()))
+        self.day_start_equity = prev["equity"] if prev else self.broker.equity
         self.killed = False
         self.next_decision = now
         log.info("=== Day %d  %s  equity Rs %.2f ===", self.days_done() + 1, self.day, self.day_start_equity)
@@ -78,6 +82,11 @@ class Runner:
         log.info("=== Day %d closed: P&L Rs %+.2f, equity Rs %.2f ===", day_no, end_eq - self.day_start_equity, end_eq)
         self.day = None
         self.write_report()
+        try:
+            from .daily import save_day
+            save_day(self.j, self.run_id, d, Path(self.report_path).parent / "daily")
+        except Exception:
+            log.exception("Daily report failed")
 
     # ---- helpers -----------------------------------------------------
     def _quotes(self, symbols: list[str]):
@@ -110,7 +119,8 @@ class Runner:
         b = self.broker
         positions = [{
             "symbol": p.symbol, "qty": p.qty, "avg_price": p.avg_price, "ltp": p.last_price,
-            "unrealized_pct": round((p.last_price / p.avg_price - 1) * 100, 2) if p.avg_price else 0,
+            "side": "short" if p.qty < 0 else "long",
+            "unrealized_pct": round((p.last_price / p.avg_price - 1) * 100 * (1 if p.qty > 0 else -1), 2) if p.avg_price else 0,
             "stop": p.stop, "target": p.target,
             "held_minutes": round((now - datetime.fromisoformat(p.opened_at)).total_seconds() / 60),
         } for p in b.positions.values()]
@@ -140,6 +150,9 @@ class Runner:
         try:
             out = brain.decide(ctx)
         except Exception as e:
+            if not self.st.get("rules_fallback", True):
+                log.warning("%s failed (%s); no new trades this cycle (rules fallback is off).", brain.name, e)
+                return
             log.warning("%s failed (%s); using rules fallback for this cycle.", brain.name, e)
             brain = self.fallback
             out = brain.decide(ctx)
@@ -161,7 +174,9 @@ class Runner:
                  d.get("stop_loss_pct", 0), d.get("target_pct", 0), d.get("reason", ""), view, brain.name))
             did, msg = cur.lastrowid, "hold"
             q = fresh.get(sym)
-            if act == "BUY":
+            if act == "SHORT" and not (self.st.get("allow_short") and self.st["product"] == "intraday"):
+                msg = "rejected: shorting is off for this profile"
+            elif act in ("BUY", "SHORT"):
                 if not q:
                     msg = "rejected: no quote"
                 elif not ctx["entries_allowed"]:
@@ -171,7 +186,8 @@ class Runner:
                 else:
                     sl = d.get("stop_loss_pct") or self.st["default_stop_loss_pct"]
                     tg = d.get("target_pct") or self.st["default_target_pct"]
-                    _, msg = self.broker.buy(exec_time, q, float(d.get("allocation_pct", 0)), float(sl), float(tg), d.get("reason", ""), did)
+                    _, msg = self.broker.buy(exec_time, q, float(d.get("allocation_pct", 0)), float(sl), float(tg),
+                                             d.get("reason", ""), did, short=act == "SHORT")
             elif act == "SELL":
                 if q and sym in self.broker.positions:
                     _, msg = self.broker.sell(exec_time, q, "ai", d.get("reason", ""), did)

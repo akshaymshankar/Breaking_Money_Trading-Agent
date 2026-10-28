@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT))
 
 from arena import charges, safety  # noqa: E402
 from arena.clock import IST  # noqa: E402
+from arena.config import ROOT  # noqa: E402
 from arena.config import load_config  # noqa: E402
 from arena.db import Journal  # noqa: E402
 from arena.engine import PaperBroker  # noqa: E402
@@ -23,7 +24,11 @@ from arena.runner import Runner  # noqa: E402
 
 
 def cfg_tmp(tmp: str) -> dict:
-    cfg = load_config()
+    # Tests run on the shipped balanced settings, whatever profile the user's config.toml picks.
+    src = (ROOT / "config.toml").read_text(encoding="utf-8-sig")
+    src = re.sub(r"(?m)^(profile|rules_fallback)\s*=.*$", "", src)
+    Path(tmp, "base.toml").write_text(src, encoding="utf-8")
+    cfg = load_config(Path(tmp, "base.toml"))
     cfg["paths"].update(db=f"{tmp}/t.db", report=f"{tmp}/r.html", data_dir=tmp, log=f"{tmp}/l.log")
     cfg["strategy"]["brain"] = "rules"
     return cfg
@@ -133,6 +138,39 @@ class Engine(unittest.TestCase):
         self.assertTrue(msgs and "stop_loss" in msgs[0])
         self.assertEqual(self.b.positions, {})
 
+    def test_short_round_trip(self):
+        ok, _ = self.b.buy(self.t, q(ltp=1000), 20, 1.0, 2, "down", short=True)
+        self.assertTrue(ok)
+        p = self.b.positions["TEST"]
+        self.assertLess(p.qty, 0)
+        self.assertGreater(p.stop, p.avg_price)
+        self.assertLess(p.target, p.avg_price)
+        self.assertAlmostEqual(self.b.equity, 100000 - p.entry_charges + p.qty * (p.last_price - p.avg_price), places=1)
+        msgs = self.b.check_exits(self.t, {"TEST": q(ltp=975)})
+        self.assertTrue(msgs and "target" in msgs[0])
+        tr = self.j.q("SELECT * FROM trades")[0]
+        self.assertGreater(tr["net_pnl"], 0)
+        self.assertAlmostEqual(self.b.cash - 100000, tr["net_pnl"], places=1)
+
+    def test_short_stop_above_entry(self):
+        self.b.buy(self.t, q(ltp=1000), 20, 1.0, 2, "down", short=True)
+        msgs = self.b.check_exits(self.t, {"TEST": q(ltp=1015)})
+        self.assertTrue(msgs and "stop_loss" in msgs[0])
+        self.assertLess(self.j.q("SELECT * FROM trades")[0]["net_pnl"], 0)
+
+    def test_intraday_leverage(self):
+        self.cfg["strategy"].update(leverage=5, max_position_pct=100)
+        b = PaperBroker(self.j, self.rid, self.cfg)
+        ok, _ = b.buy(self.t, q(ltp=1000), 100, 1.0, 2, "lev")
+        self.assertTrue(ok)
+        p = b.positions["TEST"]
+        self.assertGreater(p.qty * p.avg_price, 400000)
+        self.assertLessEqual(p.qty * p.avg_price, 500000)
+        b.sell(self.t, q(ltp=990), "ai", "out")
+        tr = self.j.q("SELECT * FROM trades")[0]
+        self.assertLess(tr["net_pnl"], -4000)  # 1% against a 5x position is about 5% of equity
+        self.assertAlmostEqual(b.cash - 100000, tr["net_pnl"], places=1)
+
     def test_state_survives_restart(self):
         self.b.buy(self.t, q(ltp=1000), 20, 1.5, 3, "in")
         b2 = PaperBroker(self.j, self.rid, self.cfg)
@@ -194,7 +232,7 @@ class EndToEnd(unittest.TestCase):
         net = sum(t["net_pnl"] for t in j.q("SELECT net_pnl FROM trades WHERE run_id=?", (rid,)))
         self.assertAlmostEqual(r.broker.cash - 100000, net, places=1)
         self.assertEqual(j.one("SELECT status FROM runs WHERE id=?", (rid,))["status"], "complete")
-        self.assertIn("2-day challenge", Path(cfg["paths"]["report"]).read_text())
+        self.assertIn("-day challenge", Path(cfg["paths"]["report"]).read_text())
         late = j.q("SELECT o.ts FROM orders o WHERE o.run_id=? AND o.side='BUY' AND o.status='filled' AND substr(o.ts,12,5) > ?",
                    (rid, cfg["strategy"]["no_new_entries_after"]))
         self.assertEqual(late, [])
@@ -266,6 +304,36 @@ class Adapters(unittest.TestCase):
         bars = f.minute_bars("RELIANCE", 1)
         self.assertTrue(bars.index.is_monotonic_increasing)
         self.assertEqual(float(bars["close"].iloc[-1]), 1.5)
+
+
+class TimeTravel(unittest.TestCase):
+    def test_single_stock_day_dashboard(self):
+        import pandas as pd
+        from datetime import time, timedelta
+        from arena import timetravel
+        rows, p = [], 1000.0
+        for d in (date(2026, 10, 26), date(2026, 10, 27)):
+            t = datetime(d.year, d.month, d.day, 9, 15, tzinfo=IST)
+            for i in range(75):
+                o, p = p, p * (1.0008 if d.day == 27 and 6 < i < 40 else 1.0)
+                rows.append((t, o, max(o, p) * 1.001, min(o, p) * 0.999, p, 50000 * (3 if i in (7, 8, 9) else 1)))
+                t += timedelta(minutes=5)
+        bars = pd.DataFrame(rows, columns=["ts", "open", "high", "low", "close", "volume"]).set_index("ts")
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = cfg_tmp(tmp)
+            out = timetravel.run(cfg, "LT", date(2026, 10, 27), bars=bars, out_dir=tmp)
+            html = out.read_text(encoding="utf-8")
+            self.assertIn("LT · Tue 27 Oct 2026", html)
+            self.assertIn("<svg", html)
+            at = bars.index[100]
+            fc = timetravel.forecast(bars.loc[:at], at, stop=990, target=1020)
+            self.assertEqual(fc, {})  # no bars left that day in the visible data: nothing to project
+            fc = timetravel.forecast(bars, at, stop=bars["close"].iloc[100] * 0.99, target=bars["close"].iloc[100] * 1.02, n=2000)
+            self.assertEqual(len(fc["p50"]), len(fc["times"]))
+            self.assertLessEqual(fc["p_target"] + fc["p_stop"], 1.0)
+            j = Journal(Path(tmp) / "timetravel.db")
+            seen = [r["ts"][:10] for r in j.q("SELECT ts FROM decisions")]
+            self.assertTrue(seen and set(seen) == {"2026-10-27"})
 
 
 class Profiles(unittest.TestCase):

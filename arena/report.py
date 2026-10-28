@@ -163,7 +163,6 @@ def write(j: Journal, run_id: int, path: str | Path, live: bool = False) -> Path
         "{{TARGET}}": str(target_days),
         "{{TILES}}": tiles_html,
         "{{DAYS}}": "".join(day_cells),
-        "{{NDAYS}}": str(target_days),
         "{{POS}}": pos_rows,
         "{{INSIGHTS}}": insight_html,
         "{{DAYNOTES}}": day_notes,
@@ -286,7 +285,7 @@ footer{color:var(--muted);font-size:11px;margin-top:24px;text-align:center}
   </div>
   <div class="tiles">{{TILES}}</div>
 </section>
-<section class="card wide"><h2>{{NDAYS}}-day challenge</h2><div class="days">{{DAYS}}</div></section>
+<section class="card wide"><h2>{{TARGET}}-day challenge</h2><div class="days">{{DAYS}}</div></section>
 <section class="card"><h2>Equity curve <small>dashed line = starting capital</small></h2><div class="chart" id="eq"></div></section>
 <section class="card"><h2>Daily P&amp;L <small>net of charges</small></h2><div class="chart" id="dp"></div></section>
 <section class="card wide"><h2>Key insights</h2><ul>{{INSIGHTS}}</ul></section>
