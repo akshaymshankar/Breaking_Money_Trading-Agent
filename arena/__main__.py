@@ -111,6 +111,20 @@ def cmd_carry_over(a, cfg):
     print(f"Live run #{run_id}: {len(dates)} days carried over, equity Rs {prev:,.2f}. Day {len(dates) + 1} starts at the next market open.")
 
 
+def cmd_time_travel(a, cfg):
+    from .clock import is_trading_day
+    from .timetravel import run
+
+    cfg = _brain_cfg(cfg, a.brain)
+    if a.date:
+        day = date.fromisoformat(a.date)
+    else:
+        day = now_ist().date() - timedelta(days=1)
+        while not is_trading_day(day, set(cfg["market"].get("holidays", []))):
+            day -= timedelta(days=1)
+    _open(run(cfg, a.symbol, day), a.no_open)
+
+
 def cmd_replay(a, cfg):
     from .feeds import load_history
     from .feeds.base import BarReplayFeed
@@ -304,6 +318,11 @@ def main(argv=None):
     rep.add_argument("--brain", choices=["claude-api", "claude-cli"]); rep.add_argument("--no-open", action="store_true")
 
     sub.add_parser("status", help="list runs and their P&L")
+    tt = sub.add_parser("time-travel", help="replay one stock's past day bar by bar (no lookahead)")
+    tt.add_argument("symbol", help="NSE symbol, e.g. LT")
+    tt.add_argument("--date", help="YYYY-MM-DD (default: previous trading day)")
+    tt.add_argument("--brain", choices=["auto", "claude-api", "claude-cli", "rules"])
+    tt.add_argument("--no-open", action="store_true")
     co = sub.add_parser("carry-over", help="start a live run from earlier days' closing equity")
     co.add_argument("equity", type=float, nargs="+", help="closing equity of day 1, day 2, ...")
     co.add_argument("--name")
@@ -319,7 +338,7 @@ def main(argv=None):
     install_guards(cfg)
     setup_logging(cfg)
     {"run": cmd_run, "replay": cmd_replay, "demo": cmd_demo, "fetch": cmd_fetch, "report": cmd_report,
-     "status": cmd_status, "carry-over": cmd_carry_over, "compete": cmd_compete, "upstox-login": cmd_upstox_login, "check": cmd_check, "gui": cmd_gui}[a.cmd](a, cfg)
+     "status": cmd_status, "carry-over": cmd_carry_over, "time-travel": cmd_time_travel, "compete": cmd_compete, "upstox-login": cmd_upstox_login, "check": cmd_check, "gui": cmd_gui}[a.cmd](a, cfg)
 
 
 if __name__ == "__main__":

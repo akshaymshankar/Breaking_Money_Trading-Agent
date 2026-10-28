@@ -306,6 +306,30 @@ class Adapters(unittest.TestCase):
         self.assertEqual(float(bars["close"].iloc[-1]), 1.5)
 
 
+class TimeTravel(unittest.TestCase):
+    def test_single_stock_day_dashboard(self):
+        import pandas as pd
+        from datetime import time, timedelta
+        from arena import timetravel
+        rows, p = [], 1000.0
+        for d in (date(2026, 10, 26), date(2026, 10, 27)):
+            t = datetime(d.year, d.month, d.day, 9, 15, tzinfo=IST)
+            for i in range(75):
+                o, p = p, p * (1.0008 if d.day == 27 and 6 < i < 40 else 1.0)
+                rows.append((t, o, max(o, p) * 1.001, min(o, p) * 0.999, p, 50000 * (3 if i in (7, 8, 9) else 1)))
+                t += timedelta(minutes=5)
+        bars = pd.DataFrame(rows, columns=["ts", "open", "high", "low", "close", "volume"]).set_index("ts")
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = cfg_tmp(tmp)
+            out = timetravel.run(cfg, "LT", date(2026, 10, 27), bars=bars, out_dir=tmp)
+            html = out.read_text(encoding="utf-8")
+            self.assertIn("LT · Tue 27 Oct 2026", html)
+            self.assertIn("<svg", html)
+            j = Journal(Path(tmp) / "timetravel.db")
+            seen = [r["ts"][:10] for r in j.q("SELECT ts FROM decisions")]
+            self.assertTrue(seen and set(seen) == {"2026-10-27"})
+
+
 class Profiles(unittest.TestCase):
     def test_aggressive_overrides_and_confidence_gate(self):
         from arena.config import apply_profile
