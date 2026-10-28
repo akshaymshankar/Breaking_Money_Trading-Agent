@@ -81,7 +81,9 @@ def forecast(bars: pd.DataFrame, at: pd.Timestamp, stop: float, target: float, n
     """
     import numpy as np
     seen = bars.loc[:at]
-    rets = np.diff(np.log(seen["close"].to_numpy()))[-375:]  # about the last five sessions
+    # Intraday 5-minute moves from the last 20 sessions; overnight gaps are left out.
+    days = sorted(set(seen.index.date))[-21:]
+    rets = np.concatenate([np.diff(np.log(g["close"].to_numpy())) for _, g in seen[pd.Index(seen.index.date).isin(days)].groupby(seen.index.date[pd.Index(seen.index.date).isin(days)])])
     day = bars[bars.index.date == at.date()]
     future = day[day.index > at].index
     if len(rets) < 20 or not len(future):
@@ -159,7 +161,7 @@ def _fc_panel(fc: dict) -> str:
     return ('<div class="panel"><h2>Looking ahead from the entry: 10,000 possible futures</h2><div class="tiles" style="margin:0">'
             + "".join(f'<div class="tile"><span>{k}</span><b>{v}</b></div>' for k, v in tiles)
             + f'</div><p class="muted" style="margin:8px 0 0;font-size:12px">From ₹{fc["start"]:,.2f} at {t[0] - (t[1] - t[0]) if len(t) > 1 else t[0]:%H:%M}, '
-            "each path replays randomly drawn 5-minute moves from the bars seen so far (about five sessions). Nothing after the entry is used, "
+            "each path replays randomly drawn 5-minute moves from the last 20 sessions seen so far (overnight gaps excluded). Nothing after the entry is used, "
             "so this is what could be expected at that moment, not what happened.</p></div>")
 
 
