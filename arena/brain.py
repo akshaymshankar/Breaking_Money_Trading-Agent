@@ -227,14 +227,14 @@ def find_claude() -> str | None:
         for name in ("claude.exe", "claude.cmd", "claude"):
             if (r / name).is_file():
                 return str(r / name)
-    # The Claude desktop app bundles Claude Code and moves it between versions; take the newest copy.
+    # The desktop app keeps its own copy; its folder has moved between app versions, so look in all of them.
     roaming = Path(os.environ.get("APPDATA", home / "AppData" / "Roaming"))
     local = Path(os.environ.get("LOCALAPPDATA", home / "AppData" / "Local"))
-    found = [f for base, pat in [(roaming / "Claude", "claude-code/**/claude.exe"),
-                                 (local / "Claude-Data", "*/claude-code/**/claude.exe"),
-                                 (local / "Packages", "*Claude*/**/claude-code/**/claude.exe")]
-             if base.is_dir() for f in base.glob(pat)]
-    return str(max(found, key=lambda f: f.stat().st_mtime)) if found else None
+    apps = [roaming / "Claude" / "claude-code", *local.glob("Claude-Data/*/claude-code"),
+            *local.glob("Packages/Claude_*/LocalCache/Roaming/Claude/claude-code")]
+    found = sorted((f for a in apps if a.is_dir() for f in a.glob("**/claude.exe")),
+                   key=lambda f: f.stat().st_mtime, reverse=True)
+    return str(found[0]) if found else None
 
 
 def make_brain(cfg: dict):

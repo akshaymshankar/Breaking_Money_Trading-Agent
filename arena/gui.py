@@ -261,6 +261,29 @@ def make_handler(ctl: Controller):
                     return self._send(200, EMPTY, "text/html")
                 html = re.sub(r'<meta http-equiv="refresh"[^>]*>', "", f.read_text(encoding="utf-8"))
                 return self._send(200, html, "text/html")
+            if path == "/rewind":
+                from .rewind import PAGE
+                return self._send(200, PAGE, "text/html")
+            if path.startswith("/api/rewind"):
+                from urllib.parse import parse_qs, urlparse
+                from . import rewind
+                qs = parse_qs(urlparse(self.path).query)
+                cfg = load_config(ctl.config_path)
+                sym = qs.get("symbol", ["LT"])[0].upper()
+                try:
+                    if path == "/api/rewind/meta":
+                        return self._send(200, json.dumps({"watchlist": cfg["market"]["watchlist"]}))
+                    if not re.fullmatch(r"[A-Z0-9&-]{1,20}", sym):
+                        raise ValueError("Unknown symbol")
+                    if path == "/api/rewind/days":
+                        return self._send(200, json.dumps({"days": rewind.trading_days(sym)}))
+                    day = qs.get("date", [""])[0]
+                    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+                        raise ValueError("Pick a date")
+                    src = "replay" if qs.get("source", ["live"])[0] == "replay" else "live"
+                    return self._send(200, json.dumps(rewind.day_data(cfg, sym, day, src), default=str))
+                except Exception as e:
+                    return self._send(200, json.dumps({"error": str(e)}))
             if path == "/timetravel":
                 f = getattr(ctl, "tt_path", None)
                 if not f or not Path(f).exists():
@@ -428,7 +451,7 @@ iframe{flex:1;border:0;width:100%;background:var(--page)}
   <div class="box"><div class="small" style="margin-bottom:6px">Activity</div><div id="log"></div></div>
 </aside>
 <main>
-  <div class="tabs"><button class="tab on" id="t_report" onclick="showTab('report')">Live dashboard</button><button class="tab" id="t_demo" onclick="showTab('demo')">Demo</button><button class="tab" id="t_timetravel" onclick="showTab('timetravel')">Time travel</button></div>
+  <div class="tabs"><button class="tab on" id="t_report" onclick="showTab('report')">Live dashboard</button><button class="tab" id="t_demo" onclick="showTab('demo')">Demo</button><button class="tab" id="t_timetravel" onclick="showTab('timetravel')">Time travel</button><button class="tab" id="t_rewind" onclick="showTab('rewind')">⏱ Rewind</button></div>
   <iframe id="frame" src="/report"></iframe>
 </main>
 <script>
@@ -438,7 +461,7 @@ const rs=v=>(v<0?"−":"")+"₹"+Math.abs(v).toLocaleString("en-IN",{minimumFrac
 async function post(url,body){const r=await fetch(url,{method:"POST",body:JSON.stringify(body||{})});const j=await r.json();$("msg").textContent=j.msg==="ok"?"":j.msg;refresh()}
 function start(n){post("/api/start",{new:n})}
 function startNew(){const name=prompt("Name for the new challenge","Breaking Money Challenge");if(name!==null)post("/api/start",{new:true,name})}
-function showTab(t){tab=t;["report","demo","timetravel"].forEach(k=>$("t_"+k).classList.toggle("on",t===k));reloadFrame()}
+function showTab(t){tab=t;["report","demo","timetravel","rewind"].forEach(k=>$("t_"+k).classList.toggle("on",t===k));reloadFrame()}
 function reloadFrame(){const f=$("frame"),y=f.contentWindow?f.contentWindow.scrollY:0;f.onload=()=>{try{f.contentWindow.scrollTo(0,y)}catch(e){}};f.src="/"+tab+"?t="+Date.now()}
 async function saveSettings(){const s={};["starting_capital","challenge_days","brain","profile","feed","decision_minutes","product","max_position_pct","max_daily_loss_pct","watchlist","notes"].forEach(k=>s[k]=$("s_"+k).value);post("/api/settings",s)}
 async function refresh(){
@@ -459,5 +482,5 @@ async function refresh(){
 async function loadDays(){const d=(await (await fetch("/api/days")).json()).days;if(!d.length)return;
  $("days").innerHTML=d.map(x=>`<div class="dayrow"><b>${x}</b><a href="/download/day?date=${x}&view=1" target="_blank">View</a><a href="/download/day?date=${x}">Download</a><a href="/download/day?date=${x}&fmt=csv">CSV</a></div>`).join("")}
 {const d=new Date();do{d.setDate(d.getDate()-1)}while(d.getDay()===0||d.getDay()===6);$("tt_day").value=d.toISOString().slice(0,10)}
-refresh();loadDays();setInterval(refresh,3000);setInterval(loadDays,60000);setInterval(reloadFrame,30000);
+refresh();loadDays();setInterval(refresh,3000);setInterval(loadDays,60000);setInterval(()=>{if(tab!=="rewind")reloadFrame()},30000);
 </script></body></html>"""
