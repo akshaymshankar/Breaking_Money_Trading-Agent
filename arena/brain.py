@@ -2,6 +2,7 @@
 
 - ClaudeAPIBrain: Anthropic API (ANTHROPIC_API_KEY or `ant auth login`).
 - ClaudeCLIBrain: the Claude Code CLI (`claude -p`), so a Claude subscription works.
+- GeminiBrain: Google's Gemini API (GEMINI_API_KEY), for the Claude vs Gemini battle.
 - RulesBrain: deterministic SMA/RSI/VWAP rules; offline baseline and fallback.
 
 Claude only says what to do and why. Quantities, cash checks and fills are
@@ -150,6 +151,114 @@ class ClaudeCLIBrain:
         return self._run(system + "\n\n" + user)
 
 
+class GeminiBrain:
+    """Gemini over plain HTTPS (no SDK). Gets the exact same prompt and JSON contract as Claude."""
+
+    name = "gemini-api"
+    BASE = "https://generativelanguage.googleapis.com/v1beta"
+
+    def __init__(self, cfg: dict, http=None):
+        from .safety import SafeHTTP
+
+        self.key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        if not self.key:
+            raise RuntimeError("GEMINI_API_KEY is not set. Paste your key from aistudio.google.com into .env or the Battle tab.")
+        self.cfg = cfg
+        self.http = http or SafeHTTP(timeout=180)
+        self.model = cfg["strategy"].get("gemini_model") or self.pick_model()
+        self.usage = {"input_tokens": 0, "output_tokens": 0}
+
+    def pick_model(self) -> str:
+        """Newest stable Gemini 'pro' model the key can use (falls back to 'flash')."""
+        r = self.http.get(f"{self.BASE}/models", params={"pageSize": 1000}, headers={"x-goog-api-key": self.key})
+        r.raise_for_status()
+        return best_gemini([m["name"].removeprefix("models/") for m in r.json().get("models", [])
+                            if "generateContent" in m.get("supportedGenerationMethods", [])])
+
+    def _call(self, system: str, user: str, json_mode: bool) -> str:
+        body = {"systemInstruction": {"parts": [{"text": system}]},
+                "contents": [{"role": "user", "parts": [{"text": user}]}]}
+        if json_mode:
+            body["generationConfig"] = {"responseMimeType": "application/json"}
+        r = self.http.post(f"{self.BASE}/models/{self.model}:generateContent", json=body,
+                           headers={"x-goog-api-key": self.key})
+        if r.status_code != 200:
+            raise RuntimeError(f"Gemini HTTP {r.status_code}: {r.text[:300]}")
+        data = r.json()
+        u = data.get("usageMetadata", {})
+        self.usage["input_tokens"] += u.get("promptTokenCount", 0)
+        self.usage["output_tokens"] += u.get("candidatesTokenCount", 0)
+        cands = data.get("candidates") or []
+        if not cands:
+            raise RuntimeError(f"Gemini returned no answer ({data.get('promptFeedback', {})})")
+        parts = cands[0].get("content", {}).get("parts", [])
+        return "".join(p.get("text", "") for p in parts if not p.get("thought"))
+
+    def decide(self, ctx: dict) -> dict:
+        system, user = build_prompt(ctx, self.cfg)
+        hint = "Reply with ONLY a JSON object matching this schema, no prose:\n" + json.dumps(DECISION_SCHEMA)
+        return _extract_json(self._call(system, user + "\n\n" + hint, True))
+
+    def write(self, system: str, user: str) -> str:
+        return self._call(system, user, False)
+
+
+class GeminiCLIBrain:
+    """The Gemini CLI (`gemini -p`), for people logged in with a Google account instead of an API key."""
+
+    name = "gemini-cli"
+
+    def __init__(self, cfg: dict):
+        self.exe = find_gemini()
+        if not self.exe:
+            raise RuntimeError("Gemini CLI not found. Install it (npm i -g @google/gemini-cli) or set GEMINI_API_KEY.")
+        self.cfg = cfg
+        self.model = cfg["strategy"].get("gemini_model") or ""
+
+    def _run(self, prompt: str) -> str:
+        cmd = [self.exe, "--output-format", "json"] + (["-m", self.model] if self.model else [])
+        out = subprocess.run(cmd + ["-p", " "], input=prompt, capture_output=True, text=True, timeout=300,
+                             encoding="utf-8")
+        if out.returncode != 0:
+            raise RuntimeError((out.stderr or out.stdout).strip()[:500])
+        try:
+            return json.loads(out.stdout).get("response", "")
+        except ValueError:
+            return out.stdout
+
+    def decide(self, ctx: dict) -> dict:
+        system, user = build_prompt(ctx, self.cfg)
+        hint = "Reply with ONLY a JSON object matching this schema, no prose:\n" + json.dumps(DECISION_SCHEMA)
+        return _extract_json(self._run(system + "\n\n" + user + "\n\n" + hint))
+
+    def write(self, system: str, user: str) -> str:
+        return self._run(system + "\n\n" + user)
+
+
+def find_gemini() -> str | None:
+    exe = shutil.which("gemini")
+    if exe:
+        return exe
+    npm = Path(os.environ.get("APPDATA", Path.home())) / "npm"
+    for name in ("gemini.cmd", "gemini.exe", "gemini"):
+        if (npm / name).is_file():
+            return str(npm / name)
+    return None
+
+
+def best_gemini(names: list[str]) -> str:
+    def version(n: str) -> tuple:
+        m = re.match(r"gemini-(\d+)(?:\.(\d+))?-(pro|flash)", n)
+        return (int(m.group(1)), int(m.group(2) or 0)) if m else (0, 0)
+    skip = ("preview", "exp", "tts", "image", "audio", "live", "lite", "thinking", "embedding", "computer")
+    stable = [n for n in names if version(n) > (0, 0) and not any(w in n for w in skip)]
+    for tier in ("-pro", "-flash"):
+        pool = [n for n in stable if tier in n]
+        if pool:
+            return max(pool, key=lambda n: (version(n), -len(n)))
+    raise RuntimeError("No usable Gemini model for this key. Set gemini_model in config.toml.")
+
+
 class RulesBrain:
     """Trend + RSI + VWAP baseline. Also the safety net when Claude is unreachable."""
 
@@ -243,4 +352,5 @@ def make_brain(cfg: dict):
         import os
         name = "claude-cli" if find_claude() else "claude-api" if os.environ.get("ANTHROPIC_API_KEY") else "rules"
         cfg["strategy"]["brain"] = name
-    return {"claude-api": ClaudeAPIBrain, "claude-cli": ClaudeCLIBrain, "rules": RulesBrain}[name](cfg)
+    return {"claude-api": ClaudeAPIBrain, "claude-cli": ClaudeCLIBrain, "gemini-api": GeminiBrain, "gemini-cli": GeminiCLIBrain,
+            "rules": RulesBrain}[name](cfg)

@@ -112,6 +112,7 @@ We do not support Zerodha Kite for this, because Kite's terms restrict virtual/m
 | `python -m arena fetch [--source yahoo\|upstox] [--days 30]` | Saves past 5-minute bars to `data/history/` for replay. |
 | `python -m arena replay [--days 10 \| --start YYYY-MM-DD --end YYYY-MM-DD]` | Runs the agent through history on a virtual clock. It never sees a future price. |
 | `python -m arena compete --brains rules,claude-api --days 10` | Several strategies, same prices, same capital, leaderboard. |
+| `python -m arena battle [--days 5] [--demo]` | 🥊 Claude vs Gemini, ₹1 lakh each on the same replayed days, goofy battle page. See [BATTLE.md](BATTLE.md). |
 | `python -m arena report [--ai]` | Rebuilds the results page. `--ai` adds Claude's coach review. |
 | `python -m arena status` | Lists all runs with equity and P&L. |
 

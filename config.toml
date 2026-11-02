@@ -23,6 +23,7 @@ brain = "auto"
 model = "claude-opus-5-5"      # used by claude-api
 effort = "medium"              # low | medium | high: how hard Claude thinks per decision
 cli_model = ""                 # optional --model for claude-cli
+gemini_model = ""              # battle mode: Gemini model to fight Claude ("" = newest stable Pro your key can use)
 decision_minutes = 15          # Claude is asked for calls this often
 poll_seconds = 30              # prices are checked this often (stops/targets run on every poll)
 bar_minutes = 5                # candle size used for indicators
