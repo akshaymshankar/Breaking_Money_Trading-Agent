@@ -1,10 +1,13 @@
 """NSE market calendar helpers (IST)."""
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta
-from zoneinfo import ZoneInfo
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-IST = ZoneInfo("Asia/Kolkata")
+try:
+    IST = ZoneInfo("Asia/Kolkata")
+except ZoneInfoNotFoundError:  # Windows without the tzdata package; India has no DST
+    IST = timezone(timedelta(hours=5, minutes=30), "IST")
 OPEN = time(9, 15)
 CLOSE = time(15, 30)
 

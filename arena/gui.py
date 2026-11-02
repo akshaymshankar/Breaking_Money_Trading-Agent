@@ -104,6 +104,15 @@ class Controller:
             self.runner.run()
         return self._spawn("demo", go)
 
+    def time_travel(self, symbol: str, day: str) -> str:
+        if not re.fullmatch(r"[A-Za-z0-9&_-]{1,20}", symbol or "") or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day or ""):
+            return "Pick a stock symbol and a date."
+        def go():
+            from datetime import date as _date
+            from .timetravel import run
+            self.tt_path = run(self.cfg(), symbol, _date.fromisoformat(day))
+        return self._spawn("timetravel", go)
+
     def ai_review(self) -> str:
         def go():
             from .brain import make_brain
@@ -123,6 +132,12 @@ class Controller:
             write(j, run["id"], cfg["paths"]["report"], live=False)
             log.info("Coach review added to the dashboard.")
         return self._spawn("review", go)
+
+    def live_run(self):
+        cfg = load_config(self.config_path)
+        j = Journal(cfg["paths"]["db"])
+        run = j.one("SELECT id FROM runs WHERE mode='live' ORDER BY id DESC LIMIT 1")
+        return j, (run["id"] if run else None)
 
     def stop(self) -> str:
         if self.runner:
@@ -182,7 +197,7 @@ class Controller:
             ("market", "feed"): s["feed"] if s["feed"] in ("yahoo", "upstox") else "yahoo",
             ("market", "watchlist"): wl,
             ("strategy", "brain"): s["brain"] if s["brain"] in ("auto", "claude-cli", "claude-api", "rules") else "auto",
-            ("strategy", "profile"): "aggressive" if s.get("profile") == "aggressive" else "balanced",
+            ("strategy", "profile"): s.get("profile") if s.get("profile") in ("aggressive", "allin") else "balanced",
             ("strategy", "decision_minutes"): max(1, int(s["decision_minutes"])),
             ("strategy", "product"): "delivery" if s["product"] == "delivery" else "intraday",
             ("strategy", "max_position_pct"): float(s["max_position_pct"]),
@@ -246,6 +261,35 @@ def make_handler(ctl: Controller):
                     return self._send(200, EMPTY, "text/html")
                 html = re.sub(r'<meta http-equiv="refresh"[^>]*>', "", f.read_text(encoding="utf-8"))
                 return self._send(200, html, "text/html")
+            if path == "/timetravel":
+                f = getattr(ctl, "tt_path", None)
+                if not f or not Path(f).exists():
+                    return self._send(200, TT_EMPTY, "text/html")
+                return self._send(200, Path(f).read_text(encoding="utf-8"), "text/html")
+            if path == "/api/days":
+                j, rid = ctl.live_run()
+                from .daily import run_days
+                return self._send(200, json.dumps({"days": run_days(j, rid) if rid else []}))
+            if path == "/download/day":
+                from urllib.parse import parse_qs, urlparse
+                from .daily import day_csv, day_html
+                qs = parse_qs(urlparse(self.path).query)
+                day, fmt = qs.get("date", [""])[0], qs.get("fmt", ["html"])[0]
+                j, rid = ctl.live_run()
+                if not rid or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+                    return self._send(404, "{}")
+                if fmt == "csv":
+                    body, ctype, ext = day_csv(j, rid, day), "text/csv", "csv"
+                else:
+                    body, ctype, ext = day_html(j, rid, day), "text/html", "html"
+                data = body.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", ctype + "; charset=utf-8")
+                if "view" not in qs:
+                    self.send_header("Content-Disposition", f'attachment; filename="arena-pnl-{day}.{ext}"')
+                self.end_headers()
+                self.wfile.write(data)
+                return
             self._send(404, "{}")
 
         def do_POST(self):
@@ -259,6 +303,8 @@ def make_handler(ctl: Controller):
                     msg = ctl.stop()
                 elif path == "/api/demo":
                     msg = ctl.start_demo(int(body.get("days", 3)))
+                elif path == "/api/timetravel":
+                    msg = ctl.time_travel(str(body.get("symbol", "")).strip().upper(), str(body.get("date", "")))
                 elif path == "/api/review":
                     msg = ctl.ai_review()
                 elif path == "/api/settings":
@@ -295,6 +341,9 @@ def serve(port: int = 8787, open_browser: bool = True) -> None:
         ctl.stop()
 
 
+TT_EMPTY = """<!doctype html><html><body style="background:#08090c;color:#898781;font:14px system-ui;display:grid;place-items:center;height:90vh;margin:0">
+<div style="text-align:center"><div style="font-size:42px">⏪</div><p>Pick a stock and a past day, then press <b style="color:#f0efec">Time travel</b>.<br>
+The agent replays that day from 09:15 and only sees prices up to each moment.</p></div></body></html>"""
 EMPTY = """<!doctype html><html><body style="background:#0d0f14;color:#898781;font:15px system-ui;display:grid;place-items:center;height:90vh;margin:0">
 <div style="text-align:center"><div style="font-size:42px">📈</div><p>No results yet.<br>Press <b style="color:#f0efec">Start trading</b> to begin, or <b style="color:#f0efec">Run demo</b> to preview.</p></div></body></html>"""
 
@@ -325,6 +374,7 @@ textarea{min-height:56px;resize:vertical}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
 details summary{cursor:pointer;font-weight:700}
 #log{font:11.5px/1.45 ui-monospace,Consolas,monospace;color:var(--ink-2);height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-word}
+.dayrow{display:flex;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line)}.dayrow b{flex:1;color:var(--ink)}.dayrow a{color:var(--accent);text-decoration:none;font-weight:700}
 #msg{min-height:18px;font-size:12px;color:var(--warn)}
 main{display:flex;flex-direction:column;min-width:0}
 .tabs{display:flex;gap:6px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--surface)}
@@ -355,12 +405,16 @@ iframe{flex:1;border:0;width:100%;background:var(--page)}
   </div>
   <button id="bdemo" onclick="post('/api/demo',{days:3});showTab('demo')">Run demo (made-up prices)</button>
   <div id="msg"></div>
+  <div class="box"><div class="small" style="margin-bottom:6px">⏪ Time travel: replay one stock's past day</div>
+    <div class="grid2"><div><label>Stock</label><input id="tt_sym" value="LT"></div><div><label>Day</label><input id="tt_day" type="date"></div></div>
+    <div class="row" style="margin-top:8px"><button id="btt" onclick="post('/api/timetravel',{symbol:$('tt_sym').value,date:$('tt_day').value});showTab('timetravel')">Time travel</button></div></div>
+  <div class="box"><div class="small" style="margin-bottom:6px">Daily P&amp;L reports</div><div id="days" class="small">No trading days yet.</div></div>
   <details class="box"><summary>Settings</summary>
     <div class="grid2">
       <div><label>Starting capital ₹</label><input id="s_starting_capital" type="number"></div>
       <div><label>Challenge days</label><input id="s_challenge_days" type="number"></div>
       <div><label>Who decides</label><select id="s_brain"><option value="auto">Auto</option><option value="claude-cli">Claude (my login)</option><option value="claude-api">Claude (API key)</option><option value="rules">Rules (free, no AI)</option></select></div>
-      <div style="grid-column:1/-1"><label>Risk profile</label><select id="s_profile"><option value="balanced">Balanced (uses the numbers below)</option><option value="aggressive">Aggressive: 3 big bets, A+ setups only, 6% day limit</option></select></div>
+      <div style="grid-column:1/-1"><label>Risk profile</label><select id="s_profile"><option value="balanced">Balanced (uses the numbers below)</option><option value="aggressive">Aggressive: 3 big bets, A+ setups only, 6% day limit</option><option value="allin">All-in: 1 trade, ~95% of cash (₹50k+), breakouts only</option></select></div>
       <div><label>Price feed</label><select id="s_feed"><option value="yahoo">Yahoo (free)</option><option value="upstox">Upstox</option></select></div>
       <div><label>Decide every (min)</label><input id="s_decision_minutes" type="number"></div>
       <div><label>Style</label><select id="s_product"><option value="intraday">Intraday</option><option value="delivery">Hold overnight</option></select></div>
@@ -374,7 +428,7 @@ iframe{flex:1;border:0;width:100%;background:var(--page)}
   <div class="box"><div class="small" style="margin-bottom:6px">Activity</div><div id="log"></div></div>
 </aside>
 <main>
-  <div class="tabs"><button class="tab on" id="t_report" onclick="showTab('report')">Live dashboard</button><button class="tab" id="t_demo" onclick="showTab('demo')">Demo</button></div>
+  <div class="tabs"><button class="tab on" id="t_report" onclick="showTab('report')">Live dashboard</button><button class="tab" id="t_demo" onclick="showTab('demo')">Demo</button><button class="tab" id="t_timetravel" onclick="showTab('timetravel')">Time travel</button></div>
   <iframe id="frame" src="/report"></iframe>
 </main>
 <script>
@@ -384,16 +438,16 @@ const rs=v=>(v<0?"−":"")+"₹"+Math.abs(v).toLocaleString("en-IN",{minimumFrac
 async function post(url,body){const r=await fetch(url,{method:"POST",body:JSON.stringify(body||{})});const j=await r.json();$("msg").textContent=j.msg==="ok"?"":j.msg;refresh()}
 function start(n){post("/api/start",{new:n})}
 function startNew(){const name=prompt("Name for the new challenge","Breaking Money Challenge");if(name!==null)post("/api/start",{new:true,name})}
-function showTab(t){tab=t;$("t_report").classList.toggle("on",t==="report");$("t_demo").classList.toggle("on",t==="demo");reloadFrame()}
+function showTab(t){tab=t;["report","demo","timetravel"].forEach(k=>$("t_"+k).classList.toggle("on",t===k));reloadFrame()}
 function reloadFrame(){const f=$("frame"),y=f.contentWindow?f.contentWindow.scrollY:0;f.onload=()=>{try{f.contentWindow.scrollTo(0,y)}catch(e){}};f.src="/"+tab+"?t="+Date.now()}
 async function saveSettings(){const s={};["starting_capital","challenge_days","brain","profile","feed","decision_minutes","product","max_position_pct","max_daily_loss_pct","watchlist","notes"].forEach(k=>s[k]=$("s_"+k).value);post("/api/settings",s)}
 async function refresh(){
  const s=await (await fetch("/api/state")).json();
- const labels={idle:"Idle",live:"Trading live",demo:"Running demo",review:"Writing coach review"};
+ const labels={idle:"Idle",live:"Trading live",demo:"Running demo",review:"Writing coach review",timetravel:"Time travelling"};
  $("status").textContent=labels[s.mode]||s.mode;$("dot").classList.toggle("on",s.busy);
  $("market").textContent=(s.market_open?"Market OPEN · ":"Market closed · next open "+s.next_open+" · ")+"IST "+s.now;
  $("brain").textContent="Decisions by: "+({"claude-cli":"Claude (your login)","claude-api":"Claude (API key)","rules":"Rules strategy (no AI)"}[s.brain]||s.brain);
- $("bstart").disabled=s.busy;$("bnew").disabled=s.busy;$("bdemo").disabled=s.busy;$("breview").disabled=s.busy;$("bstop").disabled=!(s.busy&&s.mode!=="review");
+ $("bstart").disabled=s.busy;$("bnew").disabled=s.busy;$("bdemo").disabled=s.busy;$("btt").disabled=s.busy;$("breview").disabled=s.busy;$("bstop").disabled=!(s.busy&&s.mode!=="review");
  if(s.error)$("msg").textContent="Error: "+s.error;
  if(s.run){$("runbox").style.display="";$("runname").textContent=s.run.name+" · "+s.run.status;$("equity").textContent=rs(s.run.equity);
   $("pnl").textContent=(s.run.pnl>=0?"+":"")+rs(s.run.pnl)+" ("+(s.run.pnl/(s.run.equity-s.run.pnl)*100).toFixed(2)+"%)";$("pnl").className=s.run.pnl>0?"up":s.run.pnl<0?"down":"";
@@ -402,5 +456,8 @@ async function refresh(){
  const lg=$("log"),atBottom=lg.scrollTop+lg.clientHeight>=lg.scrollHeight-5;lg.textContent=s.log.join("\n");if(atBottom)lg.scrollTop=lg.scrollHeight;
  if(!loaded){for(const k in s.settings)if($("s_"+k))$("s_"+k).value=s.settings[k];loaded=true}
 }
-refresh();setInterval(refresh,3000);setInterval(reloadFrame,30000);
+async function loadDays(){const d=(await (await fetch("/api/days")).json()).days;if(!d.length)return;
+ $("days").innerHTML=d.map(x=>`<div class="dayrow"><b>${x}</b><a href="/download/day?date=${x}&view=1" target="_blank">View</a><a href="/download/day?date=${x}">Download</a><a href="/download/day?date=${x}&fmt=csv">CSV</a></div>`).join("")}
+{const d=new Date();do{d.setDate(d.getDate()-1)}while(d.getDay()===0||d.getDay()===6);$("tt_day").value=d.toISOString().slice(0,10)}
+refresh();loadDays();setInterval(refresh,3000);setInterval(loadDays,60000);setInterval(reloadFrame,30000);
 </script></body></html>"""
