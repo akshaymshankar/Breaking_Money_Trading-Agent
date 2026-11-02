@@ -53,6 +53,8 @@ class PaperBroker:
         self.st = cfg["strategy"]
         self.product = self.st["product"]
         self.rates = cfg.get("charges", {})
+        self.risk = cfg.get("risk", {}) if cfg.get("risk", {}).get("enabled") else {}
+        self.day_start_equity = None  # set by the runner each morning; used by the risk manager
         acct = journal.one("SELECT * FROM account WHERE run_id=?", (run_id,))
         self.cash, self.realized = acct["cash"], acct["realized"]
         self.total_charges, self.total_slippage = acct["charges"], acct["slippage"]
@@ -129,6 +131,15 @@ class PaperBroker:
             return self._reject(ts, decision_id, s, side, q, "already holding")
         if len(self.positions) >= self.st["max_positions"]:
             return self._reject(ts, decision_id, s, side, q, "max open positions reached")
+        rk = self.risk
+        if rk:
+            if len(self.positions) >= rk.get("max_open_trades", 10**6):
+                return self._reject(ts, decision_id, s, side, q, f"risk manager: already {len(self.positions)} trades open (max {rk['max_open_trades']})")
+            lost = (self.day_start_equity or self.equity) - self.equity
+            room = rk.get("max_daily_loss", float("inf")) - max(lost, 0)
+            if room < rk.get("max_loss_per_trade", 0):
+                return self._reject(ts, decision_id, s, side, q,
+                                    f"risk manager: down Rs {lost:,.0f} today; a full stop-out (Rs {rk['max_loss_per_trade']:,}) would break the Rs {rk['max_daily_loss']:,} daily limit")
         alloc_pct = min(max(alloc_pct, 0), self.st["max_position_pct"])
         # Margin: each open position locks |value| / leverage of equity, long or short.
         # Intraday (MIS) may use leverage; delivery is always 1x.
@@ -140,6 +151,15 @@ class PaperBroker:
         if qty < 1:
             return self._reject(ts, decision_id, s, side, q, "not enough cash for one share")
         fill = self.fill_price(side, q, qty)
+        if rk.get("max_loss_per_trade") and stop_pct > 0:
+            # Size so that hitting the stop loses at most the per-trade limit (charges included roughly).
+            per_share = fill * stop_pct / 100 + fill * 0.0006
+            cap = int(rk["max_loss_per_trade"] // per_share)
+            if cap < qty:
+                qty = cap
+                if qty < 1:
+                    return self._reject(ts, decision_id, s, side, q, "risk manager: stop too wide for the per-trade loss limit")
+                fill = self.fill_price(side, q, qty)
         min_val = self.st.get("min_trade_value", 0)
         if min_val and qty * fill < min_val:
             return self._reject(ts, decision_id, s, side, q, f"trade below the Rs {min_val:,} minimum for this profile")

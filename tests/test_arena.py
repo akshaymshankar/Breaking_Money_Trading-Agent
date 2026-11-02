@@ -171,6 +171,20 @@ class Engine(unittest.TestCase):
         self.assertLess(tr["net_pnl"], -4000)  # 1% against a 5x position is about 5% of equity
         self.assertAlmostEqual(b.cash - 100000, tr["net_pnl"], places=1)
 
+    def test_risk_manager(self):
+        self.cfg["risk"] = {"enabled": True, "max_loss_per_trade": 1000, "max_daily_loss": 2000, "max_open_trades": 3}
+        self.cfg["strategy"].update(leverage=5, max_position_pct=100)
+        b = PaperBroker(self.j, self.rid, self.cfg)
+        b.day_start_equity = 100000
+        ok, _ = b.buy(self.t, q(ltp=1000), 100, 1.0, 2, "big")
+        self.assertTrue(ok)
+        p = b.positions["TEST"]
+        self.assertLessEqual(p.qty * p.avg_price * 0.01, 1000)  # stop-out loss within the per-trade limit
+        b.day_start_equity = 101500  # already down Rs 1,500 today
+        ok, msg = b.buy(self.t, q("OTHER", ltp=500), 100, 1.0, 2, "again")
+        self.assertFalse(ok)
+        self.assertIn("risk manager", msg)
+
     def test_state_survives_restart(self):
         self.b.buy(self.t, q(ltp=1000), 20, 1.5, 3, "in")
         b2 = PaperBroker(self.j, self.rid, self.cfg)

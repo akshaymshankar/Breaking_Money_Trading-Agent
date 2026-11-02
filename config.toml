@@ -71,3 +71,10 @@ log = "data/arena.log"
 
 [safety]
 paper_only = true              # cannot be changed; the program refuses to start otherwise
+
+[risk]
+# Risk manager ("the boss"). When enabled it overrides the AI's size and can say no to a trade.
+enabled = false
+max_loss_per_trade = 1000      # rupees lost if a trade hits its stop; size is cut to fit
+max_daily_loss = 2000          # rupees; at this loss everything closes and no new trades today
+max_open_trades = 3
