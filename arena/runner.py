@@ -57,6 +57,7 @@ class Runner:
         prev = self.j.one("SELECT equity FROM equity WHERE run_id=? AND substr(ts,1,10)<? ORDER BY ts DESC LIMIT 1",
                           (self.run_id, self.day.isoformat()))
         self.day_start_equity = prev["equity"] if prev else self.broker.equity
+        self.broker.day_start_equity = self.day_start_equity
         self.killed = False
         self.next_decision = now
         log.info("=== Day %d  %s  equity Rs %.2f ===", self.days_done() + 1, self.day, self.day_start_equity)
@@ -248,9 +249,11 @@ class Runner:
             log.info(m)
         t = now.time()
         max_loss = self.st["max_daily_loss_pct"]
-        if not self.killed and b.equity <= self.day_start_equity * (1 - max_loss / 100):
+        rk_limit = b.risk.get("max_daily_loss")
+        if not self.killed and (b.equity <= self.day_start_equity * (1 - max_loss / 100)
+                                or (rk_limit and self.day_start_equity - b.equity >= rk_limit)):
             self.killed = True
-            log.warning("Daily loss limit (%.1f%%) hit. Closing positions, no new entries today.", max_loss)
+            log.warning("Daily loss limit hit (%.1f%% or risk manager Rs %s). Closing positions, no new entries today.", max_loss, rk_limit)
             for m in b.square_off_all(now, quotes, "kill_switch"):
                 log.info(m)
         if self.st["product"] == "intraday" and t >= self.square_off:
