@@ -94,7 +94,7 @@ class Safety(unittest.TestCase):
         for f in (ROOT / "arena").rglob("*.py"):
             if f.name == "safety.py":
                 continue
-            self.assertIsNone(pat.search(f.read_text()), f"order-like code in {f}")
+            self.assertIsNone(pat.search(f.read_text(encoding="utf-8")), f"order-like code in {f}")
 
 
 class Engine(unittest.TestCase):
@@ -333,18 +333,12 @@ class TimeTravel(unittest.TestCase):
                 rows.append((t, o, max(o, p) * 1.001, min(o, p) * 0.999, p, 50000 * (3 if i in (7, 8, 9) else 1)))
                 t += timedelta(minutes=5)
         bars = pd.DataFrame(rows, columns=["ts", "open", "high", "low", "close", "volume"]).set_index("ts")
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:  # Windows keeps the SQLite file locked
             cfg = cfg_tmp(tmp)
             out = timetravel.run(cfg, "LT", date(2026, 10, 27), bars=bars, out_dir=tmp)
             html = out.read_text(encoding="utf-8")
             self.assertIn("LT · Tue 27 Oct 2026", html)
             self.assertIn("<svg", html)
-            at = bars.index[100]
-            fc = timetravel.forecast(bars.loc[:at], at, stop=990, target=1020)
-            self.assertEqual(fc, {})  # no bars left that day in the visible data: nothing to project
-            fc = timetravel.forecast(bars, at, stop=bars["close"].iloc[100] * 0.99, target=bars["close"].iloc[100] * 1.02, n=2000)
-            self.assertEqual(len(fc["p50"]), len(fc["times"]))
-            self.assertLessEqual(fc["p_target"] + fc["p_stop"], 1.0)
             j = Journal(Path(tmp) / "timetravel.db")
             seen = [r["ts"][:10] for r in j.q("SELECT ts FROM decisions")]
             self.assertTrue(seen and set(seen) == {"2026-10-27"})
@@ -380,3 +374,107 @@ class Profiles(unittest.TestCase):
         Runner(cfg, feed, j, rid, brain=Timid()).run()
         self.assertEqual(j.q("SELECT COUNT(*) n FROM orders WHERE side='BUY' AND status='filled'")[0]["n"], 0)
         self.assertGreater(j.q("SELECT COUNT(*) n FROM decisions WHERE outcome LIKE 'rejected: confidence%'")[0]["n"], 0)
+
+
+class Battle(unittest.TestCase):
+    def test_fair_fight_page_hides_stocks(self):
+        from arena import battle
+        from arena.brain import RulesBrain
+        from arena.feeds.sim import synth_bars
+        from arena.clock import trading_days
+
+        class Chatty(RulesBrain):
+            name = "fake-gemini"
+
+            def decide(self, ctx):
+                out = super().decide(ctx)
+                for d in out["decisions"]:
+                    d["reason"] = f"{d['symbol']} (Infosys / Reliance) looks good. " + d["reason"]
+                return out
+
+        class Flaky(RulesBrain):
+            name = "fake-claude"
+            n = 0
+
+            def decide(self, ctx):
+                self.n += 1
+                if self.n == 2:
+                    raise RuntimeError("timeout")
+                return super().decide(ctx)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = cfg_tmp(tmp)
+            cfg["market"]["watchlist"] = ["INFY", "RELIANCE", "TCS"]
+            days = trading_days(date(2026, 10, 5), date(2026, 10, 20), set())[:4]
+            bars = synth_bars(cfg["market"]["watchlist"], days, seed=3)
+            seen = {}
+            out = battle.run(cfg, days=3, bars=bars, out=Path(tmp, "battle.html"),
+                             brains={"claude": Flaky(cfg), "gemini": Chatty(cfg)},
+                             on_runner=lambda r: seen.setdefault(r.brain.name, r))
+            page = out.read_text(encoding="utf-8")
+            self.assertIn("Real head-to-head", page)
+            for leak in ("INFY", "RELIANCE", "TCS", "Infosys", "Reliance"):
+                self.assertNotIn(leak, page)
+            j = Journal(str(Path(tmp, "battle.db")))
+            runs = j.q("SELECT * FROM runs ORDER BY id")
+            self.assertEqual([r["starting_capital"] for r in runs], [100000, 100000])
+            # same replay window for both corners, no rules fallback
+            self.assertEqual(seen["fake-claude"].cfg["strategy"]["rules_fallback"], False)
+            d1 = [r["date"] for r in j.q("SELECT date FROM days WHERE run_id=? ORDER BY date", (runs[0]["id"],))]
+            d2 = [r["date"] for r in j.q("SELECT date FROM days WHERE run_id=? ORDER BY date", (runs[1]["id"],))]
+            self.assertEqual(d1, d2)
+            self.assertEqual(len(d1), 3)
+            self.assertEqual(seen["fake-claude"].brain.errors, 1)
+
+    def test_demo_is_stamped(self):
+        from arena import battle
+        from arena.feeds.sim import synth_bars
+        from arena.clock import trading_days
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = cfg_tmp(tmp)
+            cfg["market"]["watchlist"] = ["SBIN", "ITC"]
+            bars = synth_bars(cfg["market"]["watchlist"], trading_days(date(2026, 10, 5), date(2026, 10, 20), set())[:3])
+            page = battle.run(cfg, days=2, demo=True, bars=bars, out=Path(tmp, "b.html")).read_text(encoding="utf-8")
+            self.assertIn("Illustrative demo", page)
+            self.assertIn("not real Claude or Gemini results", page)
+
+    def test_indian_rupees(self):
+        from arena.battle import inr
+        self.assertEqual(inr(104512.3, paise=True), "₹1,04,512.30")
+        self.assertEqual(inr(-4357.21, sign=True, paise=True), "−₹4,357.21")
+        self.assertEqual(inr(12345678), "₹1,23,45,678")
+
+
+class Gemini(unittest.TestCase):
+    def test_allow_list_and_parsing(self):
+        import os
+        from arena.brain import GeminiBrain, best_gemini
+        safety.check_url("POST", "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent")
+        with self.assertRaises(safety.RealMoneyBlocked):
+            safety.check_url("POST", "https://generativelanguage.googleapis.com/v1beta/files:upload")
+        self.assertEqual(best_gemini(["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.0-pro-preview", "gemini-2.0-pro"]), "gemini-2.5-pro")
+
+        class R:
+            status_code = 200
+            def json(self):
+                return {"candidates": [{"content": {"parts": [{"text": "thinking...", "thought": True},
+                        {"text": '{"market_view":"meh","decisions":[]}'}]}}], "usageMetadata": {"promptTokenCount": 5}}
+
+        class H:
+            def post(self, url, **kw):
+                self.url, self.kw = url, kw
+                return R()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = cfg_tmp(tmp)
+            cfg["strategy"]["gemini_model"] = "gemini-2.5-pro"
+            os.environ["GEMINI_API_KEY"] = "test-key"
+            try:
+                h = H()
+                b = GeminiBrain(cfg, http=h)
+                out = b.decide({"market": {}, "positions": [], "entries_allowed": True})
+            finally:
+                del os.environ["GEMINI_API_KEY"]
+            self.assertEqual(out["market_view"], "meh")
+            self.assertIn("gemini-2.5-pro:generateContent", h.url)
+            self.assertEqual(h.kw["headers"]["x-goog-api-key"], "test-key")

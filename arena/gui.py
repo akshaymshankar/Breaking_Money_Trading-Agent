@@ -16,7 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .clock import is_market_open, next_open, now_ist
-from .config import ROOT, load_config
+from .config import ROOT, load_config, set_env_value
 from .db import Journal
 
 log = logging.getLogger("arena")
@@ -113,6 +113,13 @@ class Controller:
             self.tt_path = run(self.cfg(), symbol, _date.fromisoformat(day))
         return self._spawn("timetravel", go)
 
+    def battle(self, demo: bool, days: int) -> str:
+        def go():
+            from .battle import run
+            log.info("🥊 %s: Claude vs Gemini, Rs 1 lakh each, %d round(s).", "Demo battle (rule-bot stand-ins)" if demo else "REAL battle", days)
+            run(self.cfg(), days=max(1, min(days, 20)), demo=demo, on_runner=lambda r: setattr(self, "runner", r))
+        return self._spawn("battle", go)
+
     def ai_review(self) -> str:
         def go():
             from .brain import make_brain
@@ -146,6 +153,14 @@ class Controller:
             return "ok"
         return "Nothing is running."
 
+    @staticmethod
+    def gemini_status() -> str:
+        import os
+        from .brain import find_gemini
+        if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
+            return "Gemini: API key saved ✓"
+        return "Gemini: CLI login found ✓" if find_gemini() else "Gemini: not connected yet (paste a key from aistudio.google.com)"
+
     def state(self) -> dict:
         import tomllib
         cfg = load_config(self.config_path)
@@ -158,7 +173,7 @@ class Controller:
             "market_open": is_market_open(now, holidays),
             "next_open": next_open(now, holidays).strftime("%a %d %b, %H:%M"),
             "now": now.strftime("%H:%M:%S"),
-            "brain": resolved, "log": list(LOG_LINES)[-120:],
+            "brain": resolved, "log": list(LOG_LINES)[-120:], "gemini": self.gemini_status(),
             "settings": {
                 "starting_capital": cfg["account"]["starting_capital"],
                 "challenge_days": cfg["account"]["challenge_days"],
@@ -261,6 +276,35 @@ def make_handler(ctl: Controller):
                     return self._send(200, EMPTY, "text/html")
                 html = re.sub(r'<meta http-equiv="refresh"[^>]*>', "", f.read_text(encoding="utf-8"))
                 return self._send(200, html, "text/html")
+            if path == "/battle":
+                f = ROOT / "reports" / "battle.html"
+                if not f.exists():
+                    from .battle import placeholder
+                    return self._send(200, placeholder(), "text/html")
+                return self._send(200, f.read_text(encoding="utf-8"), "text/html")
+            if path == "/rewind":
+                from .rewind import PAGE
+                return self._send(200, PAGE, "text/html")
+            if path.startswith("/api/rewind"):
+                from urllib.parse import parse_qs, urlparse
+                from . import rewind
+                qs = parse_qs(urlparse(self.path).query)
+                cfg = load_config(ctl.config_path)
+                sym = qs.get("symbol", ["LT"])[0].upper()
+                try:
+                    if path == "/api/rewind/meta":
+                        return self._send(200, json.dumps({"watchlist": cfg["market"]["watchlist"]}))
+                    if not re.fullmatch(r"[A-Z0-9&-]{1,20}", sym):
+                        raise ValueError("Unknown symbol")
+                    if path == "/api/rewind/days":
+                        return self._send(200, json.dumps({"days": rewind.trading_days(sym)}))
+                    day = qs.get("date", [""])[0]
+                    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+                        raise ValueError("Pick a date")
+                    src = "replay" if qs.get("source", ["live"])[0] == "replay" else "live"
+                    return self._send(200, json.dumps(rewind.day_data(cfg, sym, day, src), default=str))
+                except Exception as e:
+                    return self._send(200, json.dumps({"error": str(e)}))
             if path == "/timetravel":
                 f = getattr(ctl, "tt_path", None)
                 if not f or not Path(f).exists():
@@ -305,6 +349,15 @@ def make_handler(ctl: Controller):
                     msg = ctl.start_demo(int(body.get("days", 3)))
                 elif path == "/api/timetravel":
                     msg = ctl.time_travel(str(body.get("symbol", "")).strip().upper(), str(body.get("date", "")))
+                elif path == "/api/battle":
+                    msg = ctl.battle(bool(body.get("demo")), int(body.get("days", 5)))
+                elif path == "/api/gemini-key":
+                    key = str(body.get("key", "")).strip()
+                    if not re.fullmatch(r"[A-Za-z0-9_\-]{20,80}", key):
+                        msg = "That does not look like a Gemini API key."
+                    else:
+                        set_env_value("GEMINI_API_KEY", key)
+                        msg = "Gemini key saved to .env on this PC."
                 elif path == "/api/review":
                     msg = ctl.ai_review()
                 elif path == "/api/settings":
@@ -408,6 +461,13 @@ iframe{flex:1;border:0;width:100%;background:var(--page)}
   <div class="box"><div class="small" style="margin-bottom:6px">⏪ Time travel: replay one stock's past day</div>
     <div class="grid2"><div><label>Stock</label><input id="tt_sym" value="LT"></div><div><label>Day</label><input id="tt_day" type="date"></div></div>
     <div class="row" style="margin-top:8px"><button id="btt" onclick="post('/api/timetravel',{symbol:$('tt_sym').value,date:$('tt_day').value});showTab('timetravel')">Time travel</button></div></div>
+  <div class="box"><div class="small" style="margin-bottom:6px">🥊 Claude vs Gemini battle (₹1 lakh each, same days)</div>
+    <div class="grid2"><div><label>Rounds (days)</label><input id="bt_days" type="number" value="5" min="1" max="20"></div>
+    <div><label>Gemini API key</label><input id="bt_key" type="password" placeholder="AIza…" autocomplete="off"></div></div>
+    <div class="row" style="margin-top:8px"><button onclick="saveKey()">Save key</button>
+    <button id="bbattle" onclick="post('/api/battle',{days:+$('bt_days').value});showTab('battle')">Start real battle</button></div>
+    <button id="bbdemo" style="margin-top:6px" onclick="post('/api/battle',{demo:true,days:+$('bt_days').value});showTab('battle')">Build demo battle (stand-ins, illustrative)</button>
+    <div class="small" id="gem"></div></div>
   <div class="box"><div class="small" style="margin-bottom:6px">Daily P&amp;L reports</div><div id="days" class="small">No trading days yet.</div></div>
   <details class="box"><summary>Settings</summary>
     <div class="grid2">
@@ -428,7 +488,7 @@ iframe{flex:1;border:0;width:100%;background:var(--page)}
   <div class="box"><div class="small" style="margin-bottom:6px">Activity</div><div id="log"></div></div>
 </aside>
 <main>
-  <div class="tabs"><button class="tab on" id="t_report" onclick="showTab('report')">Live dashboard</button><button class="tab" id="t_demo" onclick="showTab('demo')">Demo</button><button class="tab" id="t_timetravel" onclick="showTab('timetravel')">Time travel</button></div>
+  <div class="tabs"><button class="tab on" id="t_report" onclick="showTab('report')">Live dashboard</button><button class="tab" id="t_demo" onclick="showTab('demo')">Demo</button><button class="tab" id="t_timetravel" onclick="showTab('timetravel')">Time travel</button><button class="tab" id="t_rewind" onclick="showTab('rewind')">⏱ Rewind</button><button class="tab" id="t_battle" onclick="showTab('battle')">🥊 Claude vs Gemini</button></div>
   <iframe id="frame" src="/report"></iframe>
 </main>
 <script>
@@ -436,18 +496,19 @@ let tab="report",loaded=false;
 const $=id=>document.getElementById(id);
 const rs=v=>(v<0?"−":"")+"₹"+Math.abs(v).toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2});
 async function post(url,body){const r=await fetch(url,{method:"POST",body:JSON.stringify(body||{})});const j=await r.json();$("msg").textContent=j.msg==="ok"?"":j.msg;refresh()}
+async function saveKey(){const k=$("bt_key").value.trim();if(!k)return;await post("/api/gemini-key",{key:k});$("bt_key").value=""}
 function start(n){post("/api/start",{new:n})}
 function startNew(){const name=prompt("Name for the new challenge","Breaking Money Challenge");if(name!==null)post("/api/start",{new:true,name})}
-function showTab(t){tab=t;["report","demo","timetravel"].forEach(k=>$("t_"+k).classList.toggle("on",t===k));reloadFrame()}
+function showTab(t){tab=t;["report","demo","timetravel","rewind","battle"].forEach(k=>$("t_"+k).classList.toggle("on",t===k));reloadFrame()}
 function reloadFrame(){const f=$("frame"),y=f.contentWindow?f.contentWindow.scrollY:0;f.onload=()=>{try{f.contentWindow.scrollTo(0,y)}catch(e){}};f.src="/"+tab+"?t="+Date.now()}
 async function saveSettings(){const s={};["starting_capital","challenge_days","brain","profile","feed","decision_minutes","product","max_position_pct","max_daily_loss_pct","watchlist","notes"].forEach(k=>s[k]=$("s_"+k).value);post("/api/settings",s)}
 async function refresh(){
  const s=await (await fetch("/api/state")).json();
- const labels={idle:"Idle",live:"Trading live",demo:"Running demo",review:"Writing coach review",timetravel:"Time travelling"};
+ const labels={idle:"Idle",live:"Trading live",demo:"Running demo",review:"Writing coach review",timetravel:"Time travelling",battle:"Battle in progress 🥊"};
  $("status").textContent=labels[s.mode]||s.mode;$("dot").classList.toggle("on",s.busy);
  $("market").textContent=(s.market_open?"Market OPEN · ":"Market closed · next open "+s.next_open+" · ")+"IST "+s.now;
  $("brain").textContent="Decisions by: "+({"claude-cli":"Claude (your login)","claude-api":"Claude (API key)","rules":"Rules strategy (no AI)"}[s.brain]||s.brain);
- $("bstart").disabled=s.busy;$("bnew").disabled=s.busy;$("bdemo").disabled=s.busy;$("btt").disabled=s.busy;$("breview").disabled=s.busy;$("bstop").disabled=!(s.busy&&s.mode!=="review");
+ $("bstart").disabled=s.busy;$("bnew").disabled=s.busy;$("bdemo").disabled=s.busy;$("btt").disabled=s.busy;$("bbattle").disabled=s.busy;$("bbdemo").disabled=s.busy;$("gem").textContent=s.gemini||"";$("breview").disabled=s.busy;$("bstop").disabled=!(s.busy&&s.mode!=="review");
  if(s.error)$("msg").textContent="Error: "+s.error;
  if(s.run){$("runbox").style.display="";$("runname").textContent=s.run.name+" · "+s.run.status;$("equity").textContent=rs(s.run.equity);
   $("pnl").textContent=(s.run.pnl>=0?"+":"")+rs(s.run.pnl)+" ("+(s.run.pnl/(s.run.equity-s.run.pnl)*100).toFixed(2)+"%)";$("pnl").className=s.run.pnl>0?"up":s.run.pnl<0?"down":"";
@@ -459,5 +520,5 @@ async function refresh(){
 async function loadDays(){const d=(await (await fetch("/api/days")).json()).days;if(!d.length)return;
  $("days").innerHTML=d.map(x=>`<div class="dayrow"><b>${x}</b><a href="/download/day?date=${x}&view=1" target="_blank">View</a><a href="/download/day?date=${x}">Download</a><a href="/download/day?date=${x}&fmt=csv">CSV</a></div>`).join("")}
 {const d=new Date();do{d.setDate(d.getDate()-1)}while(d.getDay()===0||d.getDay()===6);$("tt_day").value=d.toISOString().slice(0,10)}
-refresh();loadDays();setInterval(refresh,3000);setInterval(loadDays,60000);setInterval(reloadFrame,30000);
+refresh();loadDays();setInterval(refresh,3000);setInterval(loadDays,60000);setInterval(()=>{if(tab!=="rewind"&&tab!=="battle")reloadFrame()},30000);
 </script></body></html>"""

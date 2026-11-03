@@ -230,6 +230,12 @@ def cmd_compete(a, cfg):
         print(f"  {b:12s} run #{rid}: net P&L Rs {acc['realized']:+,.2f}  charges Rs {acc['charges']:,.2f}")
 
 
+def cmd_battle(a, cfg):
+    from .battle import run
+
+    _open(run(cfg, days=a.days, demo=a.demo, source=a.source, seed=a.seed), a.no_open)
+
+
 def cmd_upstox_login(a, cfg):
     from .feeds.upstox import login_flow
 
@@ -297,16 +303,16 @@ def main(argv=None):
 
     r = sub.add_parser("run", help="live paper-trading session on real-time prices")
     r.add_argument("--new", action="store_true", help="start a fresh run instead of resuming")
-    r.add_argument("--name"); r.add_argument("--brain", choices=["auto", "claude-api", "claude-cli", "rules"])
+    r.add_argument("--name"); r.add_argument("--brain", choices=["auto", "claude-api", "claude-cli", "gemini-api", "gemini-cli", "rules"])
 
     rp = sub.add_parser("replay", help="replay saved history without lookahead")
     rp.add_argument("--start"); rp.add_argument("--end"); rp.add_argument("--days", type=int)
-    rp.add_argument("--name"); rp.add_argument("--brain", choices=["auto", "claude-api", "claude-cli", "rules"])
+    rp.add_argument("--name"); rp.add_argument("--brain", choices=["auto", "claude-api", "claude-cli", "gemini-api", "gemini-cli", "rules"])
     rp.add_argument("--no-open", action="store_true")
 
     d = sub.add_parser("demo", help="offline demo on synthetic prices")
     d.add_argument("--days", type=int, default=10); d.add_argument("--seed", type=int, default=7)
-    d.add_argument("--brain", choices=["auto", "claude-api", "claude-cli", "rules"]); d.add_argument("--no-open", action="store_true")
+    d.add_argument("--brain", choices=["auto", "claude-api", "claude-cli", "gemini-api", "gemini-cli", "rules"]); d.add_argument("--no-open", action="store_true")
 
     f = sub.add_parser("fetch", help="download history for replay")
     f.add_argument("--source", choices=["yahoo", "upstox"], default="yahoo")
@@ -321,13 +327,18 @@ def main(argv=None):
     tt = sub.add_parser("time-travel", help="replay one stock's past day bar by bar (no lookahead)")
     tt.add_argument("symbol", help="NSE symbol, e.g. LT")
     tt.add_argument("--date", help="YYYY-MM-DD (default: previous trading day)")
-    tt.add_argument("--brain", choices=["auto", "claude-api", "claude-cli", "rules"])
+    tt.add_argument("--brain", choices=["auto", "claude-api", "claude-cli", "gemini-api", "gemini-cli", "rules"])
     tt.add_argument("--no-open", action="store_true")
     co = sub.add_parser("carry-over", help="start a live run from earlier days' closing equity")
     co.add_argument("equity", type=float, nargs="+", help="closing equity of day 1, day 2, ...")
     co.add_argument("--name")
     c = sub.add_parser("compete", help="several brains on the same replay data")
     c.add_argument("--brains", default="rules,claude-api"); c.add_argument("--start"); c.add_argument("--end"); c.add_argument("--days", type=int)
+    bt = sub.add_parser("battle", help="Claude vs Gemini: Rs 1 lakh each on the same replayed days")
+    bt.add_argument("--days", type=int, default=5, help="rounds = trading days to replay (default 5)")
+    bt.add_argument("--demo", action="store_true", help="illustrative demo with rule-bot stand-ins (no AI calls)")
+    bt.add_argument("--source", choices=["auto", "history", "yahoo", "synthetic"], default="auto")
+    bt.add_argument("--seed", type=int, default=7); bt.add_argument("--no-open", action="store_true")
     sub.add_parser("upstox-login", help="get today's Upstox market-data token")
     sub.add_parser("check", help="test safety guard, market data and Claude setup")
     g = sub.add_parser("gui", help="open the control panel in your browser")
@@ -338,7 +349,7 @@ def main(argv=None):
     install_guards(cfg)
     setup_logging(cfg)
     {"run": cmd_run, "replay": cmd_replay, "demo": cmd_demo, "fetch": cmd_fetch, "report": cmd_report,
-     "status": cmd_status, "carry-over": cmd_carry_over, "time-travel": cmd_time_travel, "compete": cmd_compete, "upstox-login": cmd_upstox_login, "check": cmd_check, "gui": cmd_gui}[a.cmd](a, cfg)
+     "status": cmd_status, "carry-over": cmd_carry_over, "time-travel": cmd_time_travel, "compete": cmd_compete, "battle": cmd_battle, "upstox-login": cmd_upstox_login, "check": cmd_check, "gui": cmd_gui}[a.cmd](a, cfg)
 
 
 if __name__ == "__main__":

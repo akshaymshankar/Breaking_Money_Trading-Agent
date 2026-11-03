@@ -37,6 +37,8 @@ _ALLOWED = [
     ("api.upstox.com", r"^/v2/login/authorization/token$", {"POST"}),
     ("api.upstox.com", r"^/v2/user/profile$", {"GET"}),
     ("assets.upstox.com", r"^/market-quote/instruments/", {"GET"}),
+    # Gemini, for the Claude vs Gemini battle: the model list and text generation only.
+    ("generativelanguage.googleapis.com", r"^/v1beta/models(/[\w.\-]+:generateContent)?$", {"GET", "POST"}),
 ]
 
 # Belt and braces: even an allowed host is refused if the path smells like trading.
