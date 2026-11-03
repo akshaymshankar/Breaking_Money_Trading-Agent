@@ -179,9 +179,15 @@ def run(cfg: dict, days: int = 5, demo: bool = False, source: str = "auto", seed
         corners[key] = {"run_id": rid, "brain": brain.name, "model": model, "score": sk, "cfg": c}
     meta = {"demo": demo, "source": src, "days": [d.isoformat() for d in fight_days],
             "symbols": list(cfg["market"]["watchlist"]), "made": datetime.now(IST).strftime("%d %b %Y, %I:%M %p")}
-    page = render(j, corners, meta)
+    from . import site
+    alias = {sym: f"Stock {chr(65 + i)}" for i, sym in enumerate(sorted(meta["symbols"], key=lambda x: codenames(meta["symbols"], ",".join(meta["days"]))[x]))}
+    data = site.payload(j, corners, meta, alias, lambda t: hide(t, alias))
+    stamp = f"{datetime.now(IST):%Y%m%d-%H%M%S}{'-demo' if demo else ''}"
+    (work / f"battle-{stamp}.json").write_text(json.dumps(data, default=str, indent=1), encoding="utf-8")
+    page = site.render(data)
     out.write_text(page, encoding="utf-8")
-    (work / f"battle-{datetime.now(IST):%Y%m%d-%H%M%S}{'-demo' if demo else ''}.html").write_text(page, encoding="utf-8")
+    (work / f"battle-{stamp}.html").write_text(page, encoding="utf-8")
+    (work / "fun.html").write_text(render(j, corners, meta), encoding="utf-8")  # the original playful page
     log.info("Battle page: %s", out)
     return out
 

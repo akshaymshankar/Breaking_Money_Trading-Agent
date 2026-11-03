@@ -412,7 +412,7 @@ class Battle(unittest.TestCase):
                              brains={"claude": Flaky(cfg), "gemini": Chatty(cfg)},
                              on_runner=lambda r: seen.setdefault(r.brain.name, r))
             page = out.read_text(encoding="utf-8")
-            self.assertIn("REAL HEAD-TO-HEAD", page)
+            self.assertIn("Real head-to-head", page)
             for leak in ("INFY", "RELIANCE", "TCS", "Infosys", "Reliance"):
                 self.assertNotIn(leak, page)
             j = Journal(str(Path(tmp, "battle.db")))
@@ -435,8 +435,8 @@ class Battle(unittest.TestCase):
             cfg["market"]["watchlist"] = ["SBIN", "ITC"]
             bars = synth_bars(cfg["market"]["watchlist"], trading_days(date(2026, 10, 5), date(2026, 10, 20), set())[:3])
             page = battle.run(cfg, days=2, demo=True, bars=bars, out=Path(tmp, "b.html")).read_text(encoding="utf-8")
-            self.assertIn("ILLUSTRATIVE DEMO", page)
-            self.assertIn("NOT real Claude or Gemini results", page)
+            self.assertIn("Illustrative demo", page)
+            self.assertIn("not real Claude or Gemini results", page)
 
     def test_indian_rupees(self):
         from arena.battle import inr
