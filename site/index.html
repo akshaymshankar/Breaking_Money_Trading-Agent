@@ -3,6 +3,7 @@
 <title>Week One</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <meta name="description" content="Breaking Money · Week One: Claude paper trading setup for Indian and US markets.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"%3E%3Ccircle cx="50" cy="50" r="49" fill="%23000"/%3E%3Ccircle cx="50" cy="50" r="45.2" fill="none" stroke="%23b5f01f" stroke-width="1.6"/%3E%3Cg font-family="Inter, Helvetica, Arial, sans-serif" fill="%23f7f4e8"%3E%3Crect x="21" y="23.8" width="30" height="26.6" fill="%23033a10" stroke="%23f7f4e8" stroke-width=".9"/%3E%3Ctext x="23.2" y="29.6" font-size="3.6" font-weight="700"%3E35%3C/text%3E%3Ctext x="48.8" y="29.6" font-size="3.2" text-anchor="end"%3E79.90%3C/text%3E%3Ctext x="36" y="45.6" font-size="14" font-weight="700" text-anchor="middle" letter-spacing="-.4"%3EBr%3C/text%3E%3Crect x="46.8" y="50.7" width="30" height="27.4" fill="%23033a10" stroke="%23f7f4e8" stroke-width=".9"/%3E%3Ctext x="49" y="56.6" font-size="3.6" font-weight="700"%3E42%3C/text%3E%3Ctext x="74.6" y="56.6" font-size="3.2" text-anchor="end"%3E95.96%3C/text%3E%3Ctext x="61.8" y="73" font-size="14" font-weight="700" text-anchor="middle" letter-spacing="-.4"%3EMo%3C/text%3E%3C/g%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap">
@@ -59,10 +60,11 @@ p { margin: 0; }
 body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
 .nav { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); z-index: 5; margin-top: 12px; }
 .nav .bar { display: flex; align-items: center; gap: 6px; padding: 8px 8px 8px 18px; border: 1px solid var(--line); border-radius: 999px; background: color-mix(in srgb, var(--card) 82%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: var(--shadow); }
-.logo { display: flex; align-items: baseline; gap: 8px; font-weight: 700; letter-spacing: -0.02em; margin-right: auto; white-space: nowrap; }
-.logo b { font: italic 400 26px/1 var(--serif); color: var(--ink); }
-.logo b i { color: var(--brand); font-style: normal; }
-.logo span { font-size: 14px; }
+.logo { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -0.02em; margin-right: auto; white-space: nowrap; }
+.mark { width: 36px; height: 36px; flex: none; display: block; border-radius: 50%; }
+.logo span { font-size: 15px; }
+.foot-brand { display: flex; align-items: center; gap: 10px; }
+.foot-brand .mark { width: 28px; height: 28px; }
 .nav a.l { font-size: 14px; color: var(--soft); padding: 8px 12px; border-radius: 999px; }
 .nav a.l:hover, .nav a.l[aria-current="page"] { color: var(--ink); background: var(--tint); }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; font: 600 15px/1 var(--sans); padding: 14px 22px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; transition: transform .15s, box-shadow .15s; }
@@ -156,9 +158,33 @@ section { padding-block: 88px; }
 .bk .btn { justify-self: start; margin-top: 10px; background: var(--deep-ink); color: var(--deep); border-color: transparent; }
 .bk.hi { background: color-mix(in srgb, var(--lime) 12%, transparent); border-color: color-mix(in srgb, var(--lime) 40%, transparent); }
 .bk.hi .btn { background: var(--lime); color: #0e1a14; }
+.msg { margin: 6px 0 0; padding: 12px 14px; border-left: 2px solid var(--lime); border-radius: 0 12px 12px 0; background: color-mix(in srgb, var(--deep-ink) 7%, transparent); color: color-mix(in srgb, var(--deep-ink) 82%, transparent); font-size: 13.5px; line-height: 1.55; white-space: pre-line; overflow-wrap: anywhere; }
 .mail { font-size: 14px; color: color-mix(in srgb, var(--deep-ink) 65%, transparent); }
 .mail span { color: var(--deep-ink); font-family: var(--mono); user-select: all; }
 @media (max-width: 760px) { .book .two { grid-template-columns: minmax(0, 1fr); } }
+
+/* further info */
+.today { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 20px 24px; margin-bottom: 16px; }
+.today .l { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.today .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--down); flex: none; animation: live 1.8s infinite; box-shadow: 0 0 0 0 var(--down); }
+.today b { font: 400 26px/1.1 var(--serif); }
+.today p { color: var(--soft); font-size: 14px; }
+.more2 { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; }
+.plan, .consult { border-radius: 22px; padding: 28px; display: grid; gap: 16px; align-content: start; border: 1px solid var(--line); background: var(--card); }
+.plan { border-color: var(--brand); box-shadow: var(--shadow); }
+.plan .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.badge { font: 600 11px/1 var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--brand-ink); background: var(--brand); padding: 7px 10px; border-radius: 999px; }
+.plan h3, .consult h3 { font: 400 32px/1.05 var(--serif); }
+.price { display: flex; align-items: baseline; gap: 6px; }
+.price b { font: 400 64px/1 var(--serif); letter-spacing: -0.02em; }
+.price span { color: var(--soft); font-size: 15px; }
+.ticks { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.ticks li { display: flex; gap: 10px; align-items: flex-start; font-size: 15px; }
+.ticks li::before { content: ""; flex: none; width: 18px; height: 18px; margin-top: 2px; border-radius: 50%; background: color-mix(in srgb, var(--brand) 16%, transparent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2312804f' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 12l4 4 8-8'/%3E%3C/svg%3E") center / 12px no-repeat; }
+.consult p { color: var(--soft); font-size: 15px; }
+.consult .kicker { color: var(--brand); }
+.plan .btn, .consult .btn { justify-self: start; }
+@media (max-width: 760px) { .more2 { grid-template-columns: minmax(0, 1fr); } .price b { font-size: 52px; } }
 
 .note { padding-block: 40px 24px; }
 .note .box { max-width: 680px; margin: 0 auto; text-align: center; display: grid; gap: 8px; }
@@ -207,7 +233,7 @@ footer a:hover { color: var(--ink); }
 
 <div class="wrap nav">
   <nav class="bar" aria-label="Main">
-    <a class="logo" href="#week-one"><b>bm<i>.</i></b><span>Breaking Money</span></a>
+    <a class="logo" href="#week-one" aria-label="Breaking Money home"><svg class="mark" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="49" fill="#000"/><circle cx="50" cy="50" r="45.2" fill="none" stroke="#b5f01f" stroke-width="1.6"/><g font-family="Inter, Helvetica, Arial, sans-serif" fill="#f7f4e8"><rect x="21" y="23.8" width="30" height="26.6" fill="#033a10" stroke="#f7f4e8" stroke-width=".9"/><text x="23.2" y="29.6" font-size="3.6" font-weight="700">35</text><text x="48.8" y="29.6" font-size="3.2" text-anchor="end">79.90</text><text x="36" y="45.6" font-size="14" font-weight="700" text-anchor="middle" letter-spacing="-.4">Br</text><rect x="46.8" y="50.7" width="30" height="27.4" fill="#033a10" stroke="#f7f4e8" stroke-width=".9"/><text x="49" y="56.6" font-size="3.6" font-weight="700">42</text><text x="74.6" y="56.6" font-size="3.2" text-anchor="end">95.96</text><text x="61.8" y="73" font-size="14" font-weight="700" text-anchor="middle" letter-spacing="-.4">Mo</text></g></svg><span>Breaking Money</span></a>
     <a class="l" href="#week-one" data-view="week-one">Week One</a>
     <a class="l" href="#setup" data-view="setup">Setup guide</a>
     <a class="l" href="https://breakingmoney.in" target="_blank" rel="noopener">Website</a>
@@ -322,15 +348,53 @@ footer a:hover { color: var(--ink); }
   </section>
 </main>
 
+<!-- ============ FURTHER INFO (both pages) ============ -->
+<section id="more" style="padding-top:24px">
+  <div class="wrap">
+    <div class="head rv"><span class="kicker">Further info</span><h2>This is just <em>the start.</em></h2></div>
+    <div class="today rv">
+      <div class="l"><span class="dot" aria-hidden="true"></span><div><b>Only available for today</b><p>After today, this setup lives in our members area.</p></div></div>
+      <a class="btn sm" href="#setup">Get it now →</a>
+    </div>
+    <div class="more2">
+      <article class="plan rv">
+        <div class="top"><span class="kicker">Members area</span><span class="badge">Exclusive</span></div>
+        <h3>Everything we make, in one place</h3>
+        <div class="price"><b>₹180</b><span>/ month</span></div>
+        <ul class="ticks">
+          <li>Log in with your own email</li>
+          <li>All our exclusive setups and content</li>
+          <li>Recorded sessions</li>
+          <li>Every useful material we share</li>
+        </ul>
+        <a class="btn go" href="https://breakingmoney.in" target="_blank" rel="noopener">Join on breakingmoney.in ↗</a>
+      </article>
+      <article class="consult rv">
+        <span class="kicker">Go further</span>
+        <h3>This setup is the very basic version</h3>
+        <p>Want to talk to us personally? We run consultations on this setup and on your entire personal finance, guided by our strategies.</p>
+        <a class="btn" href="#book">Book a consultation →</a>
+      </article>
+    </div>
+  </div>
+</section>
+
 <!-- ============ BOOK + NOTE (both pages) ============ -->
 <section id="book" style="padding-top:24px">
   <div class="wrap">
     <div class="book rv">
       <div style="display:grid;gap:14px"><span class="kicker">Work with us</span><h2>Let's <em>talk.</em></h2></div>
       <div class="two">
-        <div class="bk"><h3>Book a meeting</h3><p>Collaborations, workshops and partnerships.</p><a class="btn" href="https://ig.me/m/its.breaking.money" target="_blank" rel="noopener">Book a meeting →</a></div>
-        <div class="bk hi"><h3>Book a 1:1</h3><p>Strategy and education, one to one.</p><a class="btn" href="https://ig.me/m/its.breaking.money" target="_blank" rel="noopener">Book a 1:1 →</a></div>
+        <div class="bk"><h3>Book a meeting</h3><p>Collaborations, workshops and partnerships.</p><blockquote class="msg">Hi Breaking Money! I saw your Week One live build (Claude paper trading setup) and I'd like to book a meeting about a collaboration / workshop / partnership.
+Name:
+About my brand / work:
+Best time to talk:</blockquote><a class="btn dm" href="https://ig.me/m/its.breaking.money" target="_blank" rel="noopener">Message on Instagram →</a></div>
+        <div class="bk hi"><h3>Book a 1:1</h3><p>Strategy and education, one to one.</p><blockquote class="msg">Hi Breaking Money! I saw your Week One live build (Claude paper trading setup) and I'd like to book a 1:1 for strategy and education.
+Name:
+What I want help with:
+Best time to talk:</blockquote><a class="btn dm" href="https://ig.me/m/its.breaking.money" target="_blank" rel="noopener">Message on Instagram →</a></div>
       </div>
+      <p class="mail">Tap a button: the message above is copied, Instagram opens on our DMs, just paste, fill in and send.</p>
       <p class="mail">Or email <span>hello@breakingmoney.in</span> <button class="copy" type="button" data-copy="hello@breakingmoney.in">Copy</button></p>
     </div>
   </div>
@@ -347,7 +411,7 @@ footer a:hover { color: var(--ink); }
 
 <footer>
   <div class="wrap">
-    <span>© Breaking Money</span>
+    <span class="foot-brand"><svg class="mark" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="49" fill="#000"/><circle cx="50" cy="50" r="45.2" fill="none" stroke="#b5f01f" stroke-width="1.6"/><g font-family="Inter, Helvetica, Arial, sans-serif" fill="#f7f4e8"><rect x="21" y="23.8" width="30" height="26.6" fill="#033a10" stroke="#f7f4e8" stroke-width=".9"/><text x="23.2" y="29.6" font-size="3.6" font-weight="700">35</text><text x="48.8" y="29.6" font-size="3.2" text-anchor="end">79.90</text><text x="36" y="45.6" font-size="14" font-weight="700" text-anchor="middle" letter-spacing="-.4">Br</text><rect x="46.8" y="50.7" width="30" height="27.4" fill="#033a10" stroke="#f7f4e8" stroke-width=".9"/><text x="49" y="56.6" font-size="3.6" font-weight="700">42</text><text x="74.6" y="56.6" font-size="3.2" text-anchor="end">95.96</text><text x="61.8" y="73" font-size="14" font-weight="700" text-anchor="middle" letter-spacing="-.4">Mo</text></g></svg>© Breaking Money</span>
     <span><a href="https://breakingmoney.in" target="_blank" rel="noopener">breakingmoney.in</a> · <a href="https://github.com/akshaymshankar/Breaking_Money_Trading-Agent" target="_blank" rel="noopener">GitHub</a> · <a href="https://instagram.com/its.breaking.money" target="_blank" rel="noopener">Instagram</a></span>
   </div>
 </footer>
@@ -384,7 +448,13 @@ footer a:hover { color: var(--ink); }
   else if (/Linux/i.test(pf) && !/Android/i.test(navigator.userAgent)) document.getElementById("os-linux").click();
 
   var toast = document.getElementById("toast"), tt;
-  function say(m) { toast.textContent = m; toast.classList.add("show"); clearTimeout(tt); tt = setTimeout(function () { toast.classList.remove("show"); }, 1600); }
+  function say(m, ms) { toast.textContent = m; toast.classList.add("show"); clearTimeout(tt); tt = setTimeout(function () { toast.classList.remove("show"); }, ms || 1600); }
+  document.querySelectorAll(".dm").forEach(function (a) {
+    a.addEventListener("click", function () {
+      var q = a.parentNode.querySelector(".msg"), text = q ? q.textContent.trim() : "";
+      try { navigator.clipboard.writeText(text).then(function () { say("Message copied. Paste it in the Instagram chat and send.", 4000); }, function () {}); } catch (e) {}
+    });
+  });
   document.querySelectorAll(".copy").forEach(function (b) {
     b.addEventListener("click", function () {
       var src = b.previousElementSibling, text = b.dataset.copy || (src && src.textContent) || "";
