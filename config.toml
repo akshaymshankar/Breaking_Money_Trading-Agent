@@ -6,7 +6,13 @@ starting_capital = 100000      # virtual rupees
 challenge_days = 15            # the run stops after this many trading days
 
 [market]
-# Live price source: "yahoo" (no signup) or "upstox" (free API, needs your Upstox login)
+# Which exchange the Start button trades: "US" (NYSE / Nasdaq, USD) or "IN" (NSE, INR).
+# Every agent can pick its own market; this is the default.
+region = "US"
+watchlist_us = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD", "JPM", "SPY"]
+# US market holidays (YYYY-MM-DD). Weekends are skipped automatically.
+holidays_us = ["2026-11-26", "2026-12-25", "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31"]
+# India: live price source "yahoo" (no signup) or "upstox" (free API, needs your Upstox login)
 feed = "yahoo"
 watchlist = ["RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK", "SBIN", "BHARTIARTL", "ITC", "LT", "AXISBANK"]
 # NSE trading holidays (YYYY-MM-DD). Weekends are skipped automatically.
@@ -22,7 +28,7 @@ profile = "balanced"
 brain = "auto"
 model = "claude-opus-5-5"      # used by claude-api
 effort = "medium"              # low | medium | high: how hard Claude thinks per decision
-cli_model = ""                 # optional --model for claude-cli
+cli_model = ""                 # optional --model for claude-cli: "", "sonnet", "opus" or "haiku"
 decision_minutes = 15          # Claude is asked for calls this often
 poll_seconds = 30              # prices are checked this often (stops/targets run on every poll)
 bar_minutes = 5                # candle size used for indicators
@@ -58,6 +64,14 @@ stamp_intraday_buy_pct = 0.003
 stamp_delivery_buy_pct = 0.015
 gst_pct = 18.0
 dp_charge_per_sell = 15.93
+
+[charges_us]
+# US equities at a commission-free broker. Regulatory fees apply to sells only.
+commission_per_share = 0.0
+commission_min = 0.0
+sec_fee_per_million = 27.80
+finra_taf_per_share = 0.000166
+finra_taf_cap = 8.30
 
 [report]
 refresh_seconds = 60

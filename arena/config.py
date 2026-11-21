@@ -11,7 +11,7 @@ def load_env(path: Path = ROOT / ".env") -> None:
     """Minimal .env reader (KEY=value lines). Existing env vars win."""
     if not path.exists():
         return
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -20,20 +20,24 @@ def load_env(path: Path = ROOT / ".env") -> None:
 
 
 def set_env_value(key: str, value: str, path: Path = ROOT / ".env") -> None:
-    lines = path.read_text().splitlines() if path.exists() else []
+    lines = path.read_text(encoding="utf-8-sig").splitlines() if path.exists() else []
     lines = [l for l in lines if not l.startswith(key + "=")] + [f"{key}={value}"]
     path.write_text("\n".join(lines) + "\n")
     os.environ[key] = value
 
 
-def load_config(path: str | Path | None = None) -> dict:
+def load_config(path: str | Path | None = None, overrides: dict | None = None) -> dict:
+    """overrides: {"section": {"key": value}} applied before profile/market resolution."""
     p = Path(path) if path else ROOT / "config.toml"
     with open(p, "rb") as f:
         cfg = tomllib.load(f)
+    for section, vals in (overrides or {}).items():
+        cfg.setdefault(section, {}).update({k: v for k, v in vals.items() if v is not None})
     for k, v in cfg.get("paths", {}).items():  # paths are relative to the project folder
         if not Path(v).is_absolute():
             cfg["paths"][k] = str(ROOT / v)
-    return apply_profile(cfg)
+    from .markets import apply_market
+    return apply_market(apply_profile(cfg))
 
 
 # Strategy profiles. "balanced" uses config.toml as written; others override it.

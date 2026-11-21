@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 
 from ..clock import IST, now_ist
+from ..markets import IN, Market
 
 
 @dataclass
@@ -34,9 +35,10 @@ class PriceFeed:
 
     name = "base"
     live = True
+    market: Market = IN
 
     def now(self) -> datetime:
-        return now_ist()
+        return self.market.now()
 
     def sleep(self, seconds: float) -> None:
         _time.sleep(seconds)
@@ -62,7 +64,9 @@ class BarReplayFeed(PriceFeed):
     name = "replay"
     live = False
 
-    def __init__(self, bars: dict[str, pd.DataFrame], start: datetime | None = None, end: datetime | None = None):
+    def __init__(self, bars: dict[str, pd.DataFrame], start: datetime | None = None, end: datetime | None = None,
+                 market: Market = IN):
+        self.market = market
         self.bars = {s: df.sort_index() for s, df in bars.items() if not df.empty}
         if not self.bars:
             raise ValueError("No bars to replay.")
@@ -123,22 +127,22 @@ class BarReplayFeed(PriceFeed):
             return df
         dates = sorted(set(df.index.date))[-days:]
         df = df[pd.Index(df.index.date).isin(dates)]
-        return resample(df, interval_min)
+        return resample(df, interval_min, self.market.open.minute)
 
 
-def resample(df: pd.DataFrame, interval_min: int) -> pd.DataFrame:
+def resample(df: pd.DataFrame, interval_min: int, offset_min: int = 15) -> pd.DataFrame:
     if df.empty:
         return df
     rule = f"{interval_min}min"
-    out = df.resample(rule, origin="start_day", offset="15min", label="left").agg(
+    out = df.resample(rule, origin="start_day", offset=f"{offset_min % interval_min}min", label="left").agg(
         {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
     )
     return out.dropna(subset=["close"])
 
 
-def to_ist_index(df: pd.DataFrame) -> pd.DataFrame:
+def to_ist_index(df: pd.DataFrame, tz=IST) -> pd.DataFrame:
     idx = pd.DatetimeIndex(df.index)
-    idx = idx.tz_localize(IST) if idx.tz is None else idx.tz_convert(IST)
+    idx = idx.tz_localize(tz) if idx.tz is None else idx.tz_convert(tz)
     df = df.copy()
     df.index = idx
     return df

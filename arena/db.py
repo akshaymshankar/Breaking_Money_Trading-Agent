@@ -50,8 +50,11 @@ CREATE INDEX IF NOT EXISTS ix_dec_run ON decisions(run_id, ts);
 class Journal:
     def __init__(self, path: str | Path):
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(path))
+        # Several agents (threads) share one database: WAL + a generous busy timeout keep writers from colliding.
+        self.conn = sqlite3.connect(str(path), timeout=30, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA busy_timeout=30000")
         self.conn.executescript(SCHEMA)
 
     def x(self, sql: str, params=()) -> sqlite3.Cursor:

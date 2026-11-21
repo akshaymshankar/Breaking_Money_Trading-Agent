@@ -1,190 +1,205 @@
-"""Desktop-style control panel in the browser: python -m arena gui
+"""Control panel in the browser: python -m arena gui
 
-Runs a small local web server (127.0.0.1 only) with Start / Stop buttons,
-settings, a live log and the results dashboard. Nothing is exposed to the
-internet and, as everywhere in this app, no real orders exist.
+A small local web server (127.0.0.1 only) that serves the app in arena/web/
+and a JSON API for it: start/stop Claude agents, spawn a fleet, live US and
+Indian market quotes and charts, the trade journal and settings. Nothing is
+exposed to the internet and, as everywhere in this app, no real orders exist.
 """
 from __future__ import annotations
 
-import collections
 import json
 import logging
+import mimetypes
+import os
 import re
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
-from .clock import is_market_open, next_open, now_ist
+from . import marketdata
 from .config import ROOT, load_config
-from .db import Journal
+from .fleet import LOGS, PRESETS, Fleet
+from .markets import MARKETS
 
 log = logging.getLogger("arena")
-LOG_LINES: collections.deque[str] = collections.deque(maxlen=300)
-
-
-class _Buffer(logging.Handler):
-    def emit(self, record):
-        LOG_LINES.append(self.format(record))
+WEB = Path(__file__).resolve().parent / "web"
 
 
 class Controller:
     def __init__(self, config_path=None):
         self.config_path = Path(config_path) if config_path else ROOT / "config.toml"
-        self.thread: threading.Thread | None = None
-        self.runner = None
-        self.mode = "idle"
-        self.error = ""
-        self.lock = threading.Lock()
+        self.fleet = Fleet(self.config_path)
+        self.claude = {"checked": False}
+        self.claude_lock = threading.Lock()
+        self.side_task = ""  # demo / review running in the background
+        threading.Thread(target=self._claude_info, daemon=True).start()
 
-    def cfg(self) -> dict:
-        from .__main__ import _brain_cfg
-        return _brain_cfg(load_config(self.config_path), None)
+    # ---- Claude connection ------------------------------------------
+    def _claude_info(self, ping: bool = False) -> dict:
+        from .brain import claude_status
+        with self.claude_lock:
+            st = claude_status(run_ping=ping, model=load_config(self.config_path)["strategy"].get("cli_model", ""))
+            if not ping and "ok" in self.claude:
+                st.update({k: self.claude[k] for k in ("ok", "reply", "error", "seconds", "at") if k in self.claude})
+            if ping:
+                from datetime import datetime
+                st["at"] = datetime.now().strftime("%H:%M:%S")
+                log.info("Claude connection test: %s (%.1fs)", "connected" if st.get("ok") else st.get("error", "failed"),
+                         st.get("seconds", 0))
+            st["checked"] = True
+            self.claude = st
+            return st
 
-    @property
-    def busy(self) -> bool:
-        return self.thread is not None and self.thread.is_alive()
+    def check_claude(self) -> dict:
+        return self._claude_info(ping=True)
 
-    def _spawn(self, mode: str, target) -> str:
-        with self.lock:
-            if self.busy:
-                return f"Already running ({self.mode}). Stop it first."
-            self.mode, self.error = mode, ""
+    # ---- trading -----------------------------------------------------
+    def start(self, region: str | None) -> dict:
+        region = (region or load_config(self.config_path)["market"]["region"]).upper()
+        rid = self.fleet.primary(region)
+        msg = self.fleet.start(rid)
+        return {"msg": msg, "id": rid}
 
-            def wrap():
-                try:
-                    target()
-                except Exception as e:  # show it in the panel instead of dying silently
-                    self.error = str(e)
-                    log.exception("Stopped with an error")
-                finally:
-                    self.mode = "idle"
-                    self.runner = None
+    def stop(self, rid: int | None) -> dict:
+        return {"msg": self.fleet.stop(rid) if rid else self.fleet.stop_all()}
 
-            self.thread = threading.Thread(target=wrap, daemon=True)
-            self.thread.start()
-            return "ok"
+    def demo(self, days: int = 3) -> str:
+        if self.side_task:
+            return f"Busy: {self.side_task}"
 
-    def start_live(self, new: bool, name: str) -> str:
-        def go():
-            from .feeds import make_live_feed
-            from .runner import Runner
-            cfg = self.cfg()
-            j = Journal(cfg["paths"]["db"])
-            feed = make_live_feed(cfg)
-            run = None if new else j.active_run("live")
-            if run:
-                rid = run["id"]
-                log.info("Resuming live run #%d '%s'", rid, run["name"])
-            else:
-                st = cfg["strategy"]
-                rid = j.new_run(name or f"Live challenge {now_ist():%d %b %Y}", "live", feed.name, st["brain"],
-                                st.get("model", ""), cfg["account"]["starting_capital"], cfg, now_ist().isoformat())
-                log.info("Started live run #%d with Rs %s virtual capital", rid, f"{cfg['account']['starting_capital']:,}")
-            log.info("Feed: %s | Brain: %s | PAPER ONLY", feed.name, cfg["strategy"]["brain"])
-            self.runner = Runner(cfg, feed, j, rid)
-            self.runner.write_report()
-            self.runner.run()
-        return self._spawn("live", go)
-
-    def start_demo(self, days: int = 3) -> str:
         def go():
             from .feeds.sim import SimFeed
+            from .db import Journal
             from .runner import Runner
-            cfg = self.cfg()
-            cfg["strategy"]["brain"] = "rules"
-            cfg["paths"]["db"] = str(Path(cfg["paths"]["data_dir"]) / "demo.db")
-            cfg["account"]["challenge_days"] = days
-            feed = SimFeed(cfg["market"]["watchlist"], n_days=days)
-            j = Journal(cfg["paths"]["db"])
-            rid = j.new_run("Demo on synthetic prices (rules)", "demo", "synthetic", "rules", "",
-                            cfg["account"]["starting_capital"], cfg, feed.now().isoformat())
-            log.info("DEMO: %d days of made-up prices. Not real market data.", days)
-            self.runner = Runner(cfg, feed, j, rid, report_path=ROOT / "reports" / "demo.html")
-            self.runner.run()
-        return self._spawn("demo", go)
+            from .markets import market_of
+            try:
+                self.side_task = "demo"
+                cfg = self.fleet.base_cfg()
+                cfg["strategy"]["brain"] = "rules"
+                cfg["paths"]["db"] = str(Path(cfg["paths"]["data_dir"]) / "demo.db")
+                cfg["account"]["challenge_days"] = days
+                feed = SimFeed(cfg["market"]["watchlist"], n_days=days, market=market_of(cfg))
+                j = Journal(cfg["paths"]["db"])
+                rid = j.new_run("Demo on synthetic prices (rules)", "demo", "synthetic", "rules", "",
+                                cfg["account"]["starting_capital"], cfg, feed.now().isoformat())
+                log.info("DEMO: %d days of made-up prices. Not real market data.", days)
+                Runner(cfg, feed, j, rid, report_path=ROOT / "reports" / "demo.html").run()
+            except Exception:
+                log.exception("Demo failed")
+            finally:
+                self.side_task = ""
 
-    def ai_review(self) -> str:
+        threading.Thread(target=go, daemon=True, name="demo").start()
+        return "ok"
+
+    def review(self, rid: int) -> str:
+        if self.side_task:
+            return f"Busy: {self.side_task}"
+
         def go():
             from .brain import make_brain
+            from .db import Journal
             from .insights import ai_review
             from .report import write
-            cfg = self.cfg()
-            j = Journal(cfg["paths"]["db"])
-            run = j.one("SELECT * FROM runs WHERE mode='live' ORDER BY id DESC LIMIT 1")
-            if not run:
-                log.info("No live run yet. Start trading first.")
-                return
-            if cfg["strategy"]["brain"] == "rules":
-                log.info("The coach review needs Claude (Claude Code login or API key).")
-                return
-            log.info("Asking Claude for today's coach review...")
-            ai_review(make_brain(cfg), j, run["id"])
-            write(j, run["id"], cfg["paths"]["report"], live=False)
-            log.info("Coach review added to the dashboard.")
-        return self._spawn("review", go)
+            try:
+                self.side_task = "coach review"
+                j = Journal(self.fleet.db_path)
+                run = j.one("SELECT * FROM runs WHERE id=?", (rid,))
+                cfg = json.loads(run["config_json"])
+                if cfg["strategy"]["brain"] == "rules":
+                    cfg = self.fleet.base_cfg()
+                if cfg["strategy"]["brain"] == "rules":
+                    log.info("The coach review needs Claude (Claude Code login or API key).")
+                    return
+                log.info("Asking Claude for a coach review of '%s'...", run["name"])
+                ai_review(make_brain(cfg), j, rid)
+                write(j, rid, self.report_path(rid), live=False)
+                log.info("Coach review added to the report.")
+            except Exception:
+                log.exception("Coach review failed")
+            finally:
+                self.side_task = ""
 
-    def stop(self) -> str:
-        if self.runner:
-            self.runner.stop_requested = True
-            log.info("Stopping after the current step...")
-            return "ok"
-        return "Nothing is running."
+        threading.Thread(target=go, daemon=True, name="review").start()
+        return "ok"
 
+    def report_path(self, rid: int | None) -> Path:
+        cfg = load_config(self.config_path)
+        if rid:
+            p = ROOT / "reports" / f"agent_{rid}.html"
+            if p.exists():
+                return p
+        return Path(cfg["paths"]["report"])
+
+    # ---- state -------------------------------------------------------
     def state(self) -> dict:
         import tomllib
         cfg = load_config(self.config_path)
-        raw = tomllib.loads(self.config_path.read_text(encoding="utf-8-sig"))  # settings form shows the file, not profile overrides
-        resolved = self.cfg()["strategy"]["brain"]
-        now = now_ist()
-        holidays = set(cfg["market"].get("holidays", []))
-        out = {
-            "mode": self.mode, "busy": self.busy, "error": self.error,
-            "market_open": is_market_open(now, holidays),
-            "next_open": next_open(now, holidays).strftime("%a %d %b, %H:%M"),
-            "now": now.strftime("%H:%M:%S"),
-            "brain": resolved, "log": list(LOG_LINES)[-120:],
+        raw = tomllib.loads(self.config_path.read_text(encoding="utf-8-sig"))
+        markets = {}
+        for code, mk in MARKETS.items():
+            hol = set(cfg["market"].get(f"holidays_{code.lower()}", []))
+            now = mk.now()
+            markets[code] = {
+                "code": code, "name": mk.name, "exchange": mk.exchange, "currency": mk.currency, "symbol": mk.symbol,
+                "locale": mk.locale, "tz": mk.tz_abbr, "open": mk.is_open(now, hol), "time": now.strftime("%H:%M:%S"),
+                "next_open": mk.next_open(now, hol).strftime("%a %d %b, %H:%M"),
+                "next_open_iso": mk.next_open(now, hol).isoformat(),
+                "session": f"{mk.open:%H:%M}–{mk.close:%H:%M}",
+                "watchlist": cfg["market"].get(f"watchlist_{code.lower()}") or list(mk.watchlist),
+            }
+        st = cfg["strategy"]
+        return {
+            "markets": markets,
+            "region": cfg["market"]["region"],
+            "claude": self.claude,
+            "brain_setting": st["brain"],
+            "side_task": self.side_task,
+            "agents": self.fleet.summaries(),
+            "running": self.fleet.running,
+            "presets": PRESETS,
+            "log": [json.loads(x) for x in list(LOGS.all)[-150:]],
             "settings": {
+                "region": cfg["market"]["region"],
                 "starting_capital": cfg["account"]["starting_capital"],
                 "challenge_days": cfg["account"]["challenge_days"],
-                "feed": cfg["market"]["feed"],
-                "watchlist": ", ".join(cfg["market"]["watchlist"]),
-                "brain": cfg["strategy"]["brain"],
-                "profile": cfg["strategy"].get("profile", "balanced"),
+                "feed": cfg["market"].get("feed_in", "yahoo"),
+                "watchlist_us": ", ".join(cfg["market"].get("watchlist_us") or MARKETS["US"].watchlist),
+                "watchlist_in": ", ".join(cfg["market"].get("watchlist_in") or MARKETS["IN"].watchlist),
+                "brain": st["brain"], "cli_model": st.get("cli_model", ""), "model": st.get("model", ""),
+                "profile": st.get("profile", "balanced"),
                 "decision_minutes": raw["strategy"]["decision_minutes"],
                 "product": raw["strategy"]["product"],
+                "max_positions": raw["strategy"]["max_positions"],
                 "max_position_pct": raw["strategy"]["max_position_pct"],
                 "max_daily_loss_pct": raw["strategy"]["max_daily_loss_pct"],
-                "notes": cfg["strategy"].get("notes", ""),
+                "notes": st.get("notes", ""),
             },
-            "run": None,
         }
-        j = Journal(cfg["paths"]["db"])
-        run = j.one("SELECT * FROM runs WHERE mode='live' ORDER BY id DESC LIMIT 1")
-        if run:
-            acct = j.one("SELECT * FROM account WHERE run_id=?", (run["id"],))
-            pos = j.q("SELECT symbol, qty, avg_price, last_price FROM positions WHERE run_id=?", (run["id"],))
-            eq = acct["cash"] + sum(p["qty"] * (p["last_price"] or p["avg_price"]) for p in pos)
-            days = j.one("SELECT COUNT(*) n FROM days WHERE run_id=?", (run["id"],))["n"]
-            out["run"] = {"id": run["id"], "name": run["name"], "status": run["status"], "equity": round(eq, 2),
-                          "pnl": round(eq - run["starting_capital"], 2), "positions": len(pos),
-                          "days_done": days, "target": json.loads(run["config_json"])["account"]["challenge_days"]}
-        return out
 
     def save_settings(self, s: dict) -> str:
-        if self.busy:
-            return "Stop trading before changing settings."
+        if self.fleet.running:
+            return "Stop all agents before changing settings."
         text = self.config_path.read_text(encoding="utf-8-sig")
-        wl = [w.strip().upper() for w in str(s.get("watchlist", "")).split(",") if w.strip()]
+
+        def wl(v):
+            return [w.strip().upper() for w in str(v or "").split(",") if w.strip()]
+
         updates = {
+            ("market", "region"): "IN" if s.get("region") == "IN" else "US",
             ("account", "starting_capital"): int(float(s["starting_capital"])),
-            ("account", "challenge_days"): int(s["challenge_days"]),
-            ("market", "feed"): s["feed"] if s["feed"] in ("yahoo", "upstox") else "yahoo",
-            ("market", "watchlist"): wl,
-            ("strategy", "brain"): s["brain"] if s["brain"] in ("auto", "claude-cli", "claude-api", "rules") else "auto",
+            ("account", "challenge_days"): max(1, int(s["challenge_days"])),
+            ("market", "feed"): s["feed"] if s.get("feed") in ("yahoo", "upstox") else "yahoo",
+            ("market", "watchlist_us"): wl(s.get("watchlist_us")) or list(MARKETS["US"].watchlist),
+            ("market", "watchlist"): wl(s.get("watchlist_in")) or list(MARKETS["IN"].watchlist),
+            ("strategy", "brain"): s["brain"] if s.get("brain") in ("auto", "claude-cli", "claude-api", "rules") else "auto",
+            ("strategy", "cli_model"): str(s.get("cli_model", "")).strip(),
             ("strategy", "profile"): "aggressive" if s.get("profile") == "aggressive" else "balanced",
             ("strategy", "decision_minutes"): max(1, int(s["decision_minutes"])),
-            ("strategy", "product"): "delivery" if s["product"] == "delivery" else "intraday",
+            ("strategy", "product"): "delivery" if s.get("product") == "delivery" else "intraday",
+            ("strategy", "max_positions"): max(1, int(s["max_positions"])),
             ("strategy", "max_position_pct"): float(s["max_position_pct"]),
             ("strategy", "max_daily_loss_pct"): float(s["max_daily_loss_pct"]),
             ("strategy", "notes"): str(s.get("notes", "")).replace("\n", " "),
@@ -220,6 +235,19 @@ def set_toml(text: str, section: str, key: str, value) -> str:
     raise KeyError(f"[{section}] not found in config.toml")
 
 
+def _markers(detail: dict, symbol: str, region: str) -> list[dict]:
+    out = []
+    for f in detail.get("fills", []):
+        if f["symbol"] != symbol:
+            continue
+        try:
+            t = marketdata.local_epoch(f["ts"], region)
+        except Exception:
+            continue
+        out.append({"time": t, "side": f["side"], "price": f["fill_price"], "qty": f["qty"], "trigger": f["trigger"]})
+    return sorted(out, key=lambda m: m["time"])
+
+
 def make_handler(ctl: Controller):
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -228,179 +256,129 @@ def make_handler(ctl: Controller):
         def _send(self, code, body, ctype="application/json"):
             data = body if isinstance(body, bytes) else body.encode("utf-8")
             self.send_response(code)
-            self.send_header("Content-Type", ctype + "; charset=utf-8")
+            self.send_header("Content-Type", ctype + ("; charset=utf-8" if ctype.startswith(("text", "application")) else ""))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(data)
 
+        def _json(self, obj, code=200):
+            self._send(code, json.dumps(obj, default=str))
+
         def do_GET(self):
-            path = self.path.split("?")[0]
-            if path == "/":
-                return self._send(200, PANEL, "text/html")
-            if path == "/api/state":
-                return self._send(200, json.dumps(ctl.state()))
-            if path in ("/report", "/demo"):
-                cfg = load_config(ctl.config_path)
-                f = Path(cfg["paths"]["report"]) if path == "/report" else ROOT / "reports" / "demo.html"
-                if not f.exists():
-                    return self._send(200, EMPTY, "text/html")
-                html = re.sub(r'<meta http-equiv="refresh"[^>]*>', "", f.read_text(encoding="utf-8"))
-                return self._send(200, html, "text/html")
+            u = urlparse(self.path)
+            path, qs = u.path, {k: v[0] for k, v in parse_qs(u.query).items()}
+            try:
+                if path in ("/", "/index.html"):
+                    return self._send(200, (WEB / "index.html").read_bytes(), "text/html")
+                if path.startswith("/static/"):
+                    f = (WEB / path[len("/static/"):]).resolve()
+                    if WEB.resolve() in f.parents and f.is_file():
+                        ctype = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
+                        return self._send(200, f.read_bytes(), ctype)
+                    return self._send(404, "{}")
+                if path == "/api/state":
+                    return self._json(ctl.state())
+                if path == "/api/agent":
+                    return self._json(ctl.fleet.detail(int(qs["id"])))
+                if path == "/api/quotes":
+                    region = qs.get("region", "US").upper()
+                    syms = qs.get("symbols", "").split(",")
+                    return self._json({"quotes": marketdata.quotes(region, syms), "indices": marketdata.indices(region)})
+                if path == "/api/candles":
+                    region = qs.get("region", "US").upper()
+                    sym = qs["symbol"].upper()
+                    data = marketdata.candles(region, sym, qs.get("interval", "5m"))
+                    if qs.get("agent"):
+                        data = dict(data, markers=_markers(ctl.fleet.detail(int(qs["agent"])), sym, region))
+                    return self._json(data)
+                if path in ("/report", "/demo"):
+                    f = ctl.report_path(int(qs["id"]) if qs.get("id") else None) if path == "/report" else ROOT / "reports" / "demo.html"
+                    if not f.exists():
+                        return self._send(200, EMPTY, "text/html")
+                    html = re.sub(r'<meta http-equiv="refresh"[^>]*>', "", f.read_text(encoding="utf-8"))
+                    return self._send(200, html, "text/html")
+            except Exception as e:
+                log.warning("GET %s failed: %s", path, e)
+                return self._json({"error": str(e)}, 500)
             self._send(404, "{}")
 
         def do_POST(self):
             n = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(n) or b"{}")
-            path = self.path
+            path = urlparse(self.path).path
             try:
                 if path == "/api/start":
-                    msg = ctl.start_live(bool(body.get("new")), body.get("name", ""))
-                elif path == "/api/stop":
-                    msg = ctl.stop()
-                elif path == "/api/demo":
-                    msg = ctl.start_demo(int(body.get("days", 3)))
-                elif path == "/api/review":
-                    msg = ctl.ai_review()
-                elif path == "/api/settings":
-                    msg = ctl.save_settings(body)
-                else:
-                    return self._send(404, "{}")
+                    return self._json(ctl.start(body.get("region")))
+                if path == "/api/stop":
+                    return self._json(ctl.stop(int(body["id"]) if body.get("id") else None))
+                if path == "/api/agents":
+                    rid = ctl.fleet.spawn(body, start=body.get("start", True))
+                    return self._json({"msg": "ok", "id": rid})
+                if path == "/api/agents/squad":
+                    region = body.get("region") or "US"
+                    keys = body.get("presets") or ["momentum", "reversion", "guardian"]
+                    ids = [ctl.fleet.spawn({"preset": k, "region": region, "model": body.get("model"),
+                                            "mode": body.get("mode"), "replay_days": body.get("replay_days")})
+                           for k in keys]
+                    return self._json({"msg": "ok", "ids": ids})
+                if path == "/api/agents/start":
+                    return self._json({"msg": ctl.fleet.start(int(body["id"]))})
+                if path == "/api/agents/stop":
+                    return self._json({"msg": ctl.fleet.stop(int(body["id"]))})
+                if path == "/api/agents/remove":
+                    return self._json({"msg": ctl.fleet.remove(int(body["id"]))})
+                if path == "/api/claude/check":
+                    return self._json(ctl.check_claude())
+                if path == "/api/claude/refresh":
+                    return self._json(ctl._claude_info())
+                if path in ("/api/claude/login", "/api/claude/install"):
+                    from .brain import claude_install, claude_login
+                    return self._json({"msg": (claude_login if path.endswith("login") else claude_install)()})
+                if path == "/api/demo":
+                    return self._json({"msg": ctl.demo(int(body.get("days", 3)))})
+                if path == "/api/review":
+                    return self._json({"msg": ctl.review(int(body["id"]))})
+                if path == "/api/settings":
+                    return self._json({"msg": ctl.save_settings(body)})
             except Exception as e:
-                msg = f"Error: {e}"
-            self._send(200, json.dumps({"msg": msg}))
+                log.warning("POST %s failed: %s", path, e)
+                return self._json({"msg": f"Error: {e}"})
+            self._send(404, "{}")
 
     return H
 
 
 def serve(port: int = 8787, open_browser: bool = True) -> None:
-    h = _Buffer()
-    h.setFormatter(logging.Formatter("%(asctime)s  %(message)s", "%H:%M:%S"))
-    logging.getLogger().addHandler(h)
+    LOGS.setLevel(logging.INFO)
+    logging.getLogger().addHandler(LOGS)
+    mimetypes.add_type("text/javascript", ".js")
+    mimetypes.add_type("text/css", ".css")
     ctl = Controller()
+
+    class Server(ThreadingHTTPServer):
+        # On Windows SO_REUSEADDR lets a second process bind a port that is already in use,
+        # so an old copy of the app would silently keep answering. Bind exclusively instead.
+        allow_reuse_address = os.name != "nt"
+        daemon_threads = True
+
     for p in range(port, port + 10):
         try:
-            srv = ThreadingHTTPServer(("127.0.0.1", p), make_handler(ctl))
+            srv = Server(("127.0.0.1", p), make_handler(ctl))
             break
         except OSError:
             continue
     else:
         raise SystemExit("No free port between 8787 and 8796.")
     url = f"http://127.0.0.1:{p}/"
-    print(f"\n  AI Trading Arena is running at {url}\n  Keep this window open. Close it to quit.\n")
+    print(f"\n  Breaking Money · AI Trading Arena is running at {url}\n  Keep this window open. Close it to quit.\n")
     if open_browser:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
-        ctl.stop()
+        ctl.fleet.stop_all()
 
 
-EMPTY = """<!doctype html><html><body style="background:#0d0f14;color:#898781;font:15px system-ui;display:grid;place-items:center;height:90vh;margin:0">
-<div style="text-align:center"><div style="font-size:42px">📈</div><p>No results yet.<br>Press <b style="color:#f0efec">Start trading</b> to begin, or <b style="color:#f0efec">Run demo</b> to preview.</p></div></body></html>"""
-
-PANEL = r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AI Trading Arena</title>
-<style>
-:root{--page:#08090c;--surface:#12141a;--surface-2:#1a1d25;--line:#262a35;--ink:#f0efec;--ink-2:#c3c2b7;--muted:#898781;
---accent:#3987e5;--up:#0ca30c;--down:#d03b3b;--warn:#fab219}
-*{box-sizing:border-box}html,body{margin:0;height:100%}
-body{background:var(--page);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;display:grid;grid-template-columns:340px 1fr;height:100vh}
-aside{background:linear-gradient(180deg,#121826,var(--surface));border-right:1px solid var(--line);padding:18px 16px;overflow-y:auto;display:flex;flex-direction:column;gap:14px}
-.brand{font-weight:800;letter-spacing:.14em;text-transform:uppercase;font-size:11px;color:var(--accent)}
-h1{font-size:20px;margin:2px 0 0}
-.badge{display:inline-block;border:1px solid rgba(250,178,25,.4);color:var(--warn);border-radius:999px;padding:3px 9px;font-size:10.5px;font-weight:700;letter-spacing:.08em;margin-top:8px}
-.box{background:var(--page);border:1px solid var(--line);border-radius:12px;padding:12px}
-.status{display:flex;align-items:center;gap:8px;font-weight:700}
-.dot{width:10px;height:10px;border-radius:50%;background:var(--muted)}
-.dot.on{background:var(--up);box-shadow:0 0 10px var(--up);animation:p 1.4s infinite}@keyframes p{50%{opacity:.3}}
-.small{color:var(--muted);font-size:12px}
-.big{font-size:26px;font-weight:800}.up{color:var(--up)}.down{color:var(--down)}
-.row{display:flex;gap:8px;flex-wrap:wrap}
-button{font:inherit;font-weight:700;border-radius:10px;border:1px solid var(--line);background:var(--surface-2);color:var(--ink);padding:10px 12px;cursor:pointer;flex:1}
-button:hover{border-color:var(--accent)}button:disabled{opacity:.4;cursor:not-allowed}
-button.go{background:var(--up);border-color:var(--up);color:#fff}button.stop{background:var(--down);border-color:var(--down);color:#fff}
-label{display:block;font-size:11.5px;color:var(--muted);margin:8px 0 3px}
-input,select,textarea{width:100%;font:inherit;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 9px}
-textarea{min-height:56px;resize:vertical}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
-details summary{cursor:pointer;font-weight:700}
-#log{font:11.5px/1.45 ui-monospace,Consolas,monospace;color:var(--ink-2);height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-word}
-#msg{min-height:18px;font-size:12px;color:var(--warn)}
-main{display:flex;flex-direction:column;min-width:0}
-.tabs{display:flex;gap:6px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--surface)}
-.tab{flex:none;padding:7px 14px;font-size:13px}.tab.on{border-color:var(--accent);color:var(--accent)}
-iframe{flex:1;border:0;width:100%;background:var(--page)}
-@media (max-width:860px){body{grid-template-columns:1fr;height:auto}main{height:90vh}}
-</style></head><body>
-<aside>
-  <div><div class="brand">Breaking Money</div><h1>AI Trading Arena</h1><span class="badge">PAPER ONLY · VIRTUAL ₹</span></div>
-  <div class="box">
-    <div class="status"><span class="dot" id="dot"></span><span id="status">Loading…</span></div>
-    <div class="small" id="market"></div>
-    <div class="small" id="brain"></div>
-  </div>
-  <div class="box" id="runbox" style="display:none">
-    <div class="small" id="runname"></div>
-    <div class="big" id="equity"></div>
-    <div id="pnl" style="font-weight:700"></div>
-    <div class="small" id="rundetail"></div>
-  </div>
-  <div class="row">
-    <button class="go" id="bstart" onclick="start(false)">▶ Start trading</button>
-    <button class="stop" id="bstop" onclick="post('/api/stop')">■ Stop</button>
-  </div>
-  <div class="row">
-    <button id="bnew" onclick="startNew()">New challenge</button>
-    <button id="breview" onclick="post('/api/review')">Coach review</button>
-  </div>
-  <button id="bdemo" onclick="post('/api/demo',{days:3});showTab('demo')">Run demo (made-up prices)</button>
-  <div id="msg"></div>
-  <details class="box"><summary>Settings</summary>
-    <div class="grid2">
-      <div><label>Starting capital ₹</label><input id="s_starting_capital" type="number"></div>
-      <div><label>Challenge days</label><input id="s_challenge_days" type="number"></div>
-      <div><label>Who decides</label><select id="s_brain"><option value="auto">Auto</option><option value="claude-cli">Claude (my login)</option><option value="claude-api">Claude (API key)</option><option value="rules">Rules (free, no AI)</option></select></div>
-      <div style="grid-column:1/-1"><label>Risk profile</label><select id="s_profile"><option value="balanced">Balanced (uses the numbers below)</option><option value="aggressive">Aggressive: 3 big bets, A+ setups only, 6% day limit</option></select></div>
-      <div><label>Price feed</label><select id="s_feed"><option value="yahoo">Yahoo (free)</option><option value="upstox">Upstox</option></select></div>
-      <div><label>Decide every (min)</label><input id="s_decision_minutes" type="number"></div>
-      <div><label>Style</label><select id="s_product"><option value="intraday">Intraday</option><option value="delivery">Hold overnight</option></select></div>
-      <div><label>Max per stock %</label><input id="s_max_position_pct" type="number"></div>
-      <div><label>Daily loss stop %</label><input id="s_max_daily_loss_pct" type="number" step="0.5"></div>
-    </div>
-    <label>Watchlist (NSE symbols, comma separated)</label><textarea id="s_watchlist"></textarea>
-    <label>Strategy notes for Claude</label><textarea id="s_notes" placeholder="e.g. Only trade breakouts with strong volume"></textarea>
-    <div class="row" style="margin-top:10px"><button onclick="saveSettings()">Save settings</button></div>
-  </details>
-  <div class="box"><div class="small" style="margin-bottom:6px">Activity</div><div id="log"></div></div>
-</aside>
-<main>
-  <div class="tabs"><button class="tab on" id="t_report" onclick="showTab('report')">Live dashboard</button><button class="tab" id="t_demo" onclick="showTab('demo')">Demo</button></div>
-  <iframe id="frame" src="/report"></iframe>
-</main>
-<script>
-let tab="report",loaded=false;
-const $=id=>document.getElementById(id);
-const rs=v=>(v<0?"−":"")+"₹"+Math.abs(v).toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2});
-async function post(url,body){const r=await fetch(url,{method:"POST",body:JSON.stringify(body||{})});const j=await r.json();$("msg").textContent=j.msg==="ok"?"":j.msg;refresh()}
-function start(n){post("/api/start",{new:n})}
-function startNew(){const name=prompt("Name for the new challenge","Breaking Money Challenge");if(name!==null)post("/api/start",{new:true,name})}
-function showTab(t){tab=t;$("t_report").classList.toggle("on",t==="report");$("t_demo").classList.toggle("on",t==="demo");reloadFrame()}
-function reloadFrame(){const f=$("frame"),y=f.contentWindow?f.contentWindow.scrollY:0;f.onload=()=>{try{f.contentWindow.scrollTo(0,y)}catch(e){}};f.src="/"+tab+"?t="+Date.now()}
-async function saveSettings(){const s={};["starting_capital","challenge_days","brain","profile","feed","decision_minutes","product","max_position_pct","max_daily_loss_pct","watchlist","notes"].forEach(k=>s[k]=$("s_"+k).value);post("/api/settings",s)}
-async function refresh(){
- const s=await (await fetch("/api/state")).json();
- const labels={idle:"Idle",live:"Trading live",demo:"Running demo",review:"Writing coach review"};
- $("status").textContent=labels[s.mode]||s.mode;$("dot").classList.toggle("on",s.busy);
- $("market").textContent=(s.market_open?"Market OPEN · ":"Market closed · next open "+s.next_open+" · ")+"IST "+s.now;
- $("brain").textContent="Decisions by: "+({"claude-cli":"Claude (your login)","claude-api":"Claude (API key)","rules":"Rules strategy (no AI)"}[s.brain]||s.brain);
- $("bstart").disabled=s.busy;$("bnew").disabled=s.busy;$("bdemo").disabled=s.busy;$("breview").disabled=s.busy;$("bstop").disabled=!(s.busy&&s.mode!=="review");
- if(s.error)$("msg").textContent="Error: "+s.error;
- if(s.run){$("runbox").style.display="";$("runname").textContent=s.run.name+" · "+s.run.status;$("equity").textContent=rs(s.run.equity);
-  $("pnl").textContent=(s.run.pnl>=0?"+":"")+rs(s.run.pnl)+" ("+(s.run.pnl/(s.run.equity-s.run.pnl)*100).toFixed(2)+"%)";$("pnl").className=s.run.pnl>0?"up":s.run.pnl<0?"down":"";
-  $("rundetail").textContent="Day "+Math.min(s.run.days_done+(s.run.status==="active"?1:0),s.run.target)+" of "+s.run.target+" · "+s.run.positions+" open position(s)";
-  $("bstart").textContent=s.run.status==="active"?"▶ Resume trading":"▶ Start trading"}
- const lg=$("log"),atBottom=lg.scrollTop+lg.clientHeight>=lg.scrollHeight-5;lg.textContent=s.log.join("\n");if(atBottom)lg.scrollTop=lg.scrollHeight;
- if(!loaded){for(const k in s.settings)if($("s_"+k))$("s_"+k).value=s.settings[k];loaded=true}
-}
-refresh();setInterval(refresh,3000);setInterval(reloadFrame,30000);
-</script></body></html>"""
+EMPTY = """<!doctype html><html><head><meta charset="utf-8"><style>
+:root{color-scheme:light dark}body{margin:0;height:100vh;display:grid;place-items:center;font:15px -apple-system,BlinkMacSystemFont,"Inter","Segoe UI",sans-serif;background:Canvas;color:GrayText}
+</style></head><body><div style="text-align:center"><p>No report yet.<br>Start an agent to generate one.</p></div></body></html>"""

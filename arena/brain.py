@@ -40,9 +40,9 @@ DECISION_SCHEMA = {
     "additionalProperties": False,
 }
 
-SYSTEM = """You are the strategy brain of a PAPER-TRADING simulator for Indian equities (NSE cash market).
-All money is virtual. A separate deterministic engine executes your calls with slippage and real Indian charges,
-so only trade when the expected move clearly beats roughly 0.1% round-trip costs.
+SYSTEM = """You are {agent_name}, the strategy brain of a PAPER-TRADING simulator for {market_desc}.
+All money is virtual. A separate deterministic engine executes your calls with slippage and {fees_desc},
+so only trade when the expected move clearly beats {cost_hint} round-trip costs.
 
 Rules of the arena:
 - Long-only. BUY opens a position in a stock you do not hold. SELL closes a position you hold. HOLD means do nothing.
@@ -50,7 +50,7 @@ Rules of the arena:
 - stop_loss_pct and target_pct are distances from entry in %, for BUY. Use 0 for SELL/HOLD.
 - confidence is 0 to 1.
 - Product: {product}. {product_note}
-- Max {max_positions} open positions. Do not open new positions after {cutoff} IST.
+- Max {max_positions} open positions. Do not open new positions after {cutoff} {tz}.
 - Give a decision for every symbol in the snapshot. Keep each reason to one or two specific sentences
   that cite the numbers you used (trend, RSI, VWAP, momentum, volume, P&L).
 - Protecting capital matters more than activity. HOLD is a fine answer.
@@ -59,12 +59,21 @@ Rules of the arena:
 
 def build_prompt(ctx: dict, cfg: dict) -> tuple[str, str]:
     st = cfg["strategy"]
-    product_note = ("Intraday positions are force-closed at " + st["square_off_time"] + " IST."
+    from .markets import market_of
+    mk = market_of(cfg)
+    agent = cfg.get("agent", {})
+    product_note = ("Intraday positions are force-closed at " + st["square_off_time"] + " " + mk.tz_abbr + "."
                     if st["product"] == "intraday" else "Positions may be carried overnight.")
     system = SYSTEM.format(
+        agent_name=agent.get("name") or "the agent",
+        market_desc=("US equities (NYSE / Nasdaq, prices in USD)" if mk.code == "US"
+                     else "Indian equities (NSE cash market, prices in INR)"),
+        fees_desc=("US regulatory fees (SEC + FINRA TAF)" if mk.code == "US" else "real Indian charges"),
+        cost_hint=("roughly 0.05%" if mk.code == "US" else "roughly 0.1%"), tz=mk.tz_abbr,
         max_pos=st["max_position_pct"], product=st["product"], product_note=product_note,
         max_positions=st["max_positions"], cutoff=st["no_new_entries_after"],
         strategy_notes="\n".join(x for x in [
+            ("Your trading persona:\n" + agent["persona"]) if agent.get("persona") else "",
             st.get("profile_notes", ""),
             ("Strategy notes from the user:\n" + st["notes"]) if st.get("notes") else "",
             (f"BUY calls below confidence {st['min_confidence']} are rejected by the engine." if st.get("min_confidence") else ""),
@@ -118,28 +127,42 @@ class ClaudeCLIBrain:
     name = "claude-cli"
 
     def __init__(self, cfg: dict):
-        self.exe = shutil.which("claude")
+        self.exe = find_claude()
         if not self.exe:
             raise RuntimeError("Claude Code CLI not found on PATH. Install it or use brain = 'claude-api'.")
         self.cfg = cfg
         self.model = cfg["strategy"].get("cli_model") or ""
+        self.usage = {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
 
-    def _run(self, prompt: str) -> str:
-        cmd = [self.exe, "-p", prompt, "--output-format", "json"]
+    def _run(self, prompt: str, system: str = "", timeout: int = 300) -> str:
+        # The prompt goes in on stdin: Windows command lines are short and mangle quotes/newlines.
+        # No tools, no saved session: each call is a pure, stateless decision.
+        cmd = [self.exe, "-p", "--output-format", "json", "--tools", "", "--no-session-persistence"]
+        if system:
+            cmd += ["--system-prompt", system]
         if self.model:
             cmd += ["--model", self.model]
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        out = subprocess.run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8",
+                             timeout=timeout, cwd=_neutral_dir())
         if out.returncode != 0:
-            raise RuntimeError(out.stderr.strip()[:500])
-        return json.loads(out.stdout).get("result", "")
+            detail = (out.stderr or out.stdout or "").strip()
+            raise RuntimeError(detail[:500] or f"claude exited with code {out.returncode}")
+        data = json.loads(out.stdout)
+        if data.get("is_error"):
+            raise RuntimeError(str(data.get("result") or data.get("subtype") or "claude reported an error")[:500])
+        u = data.get("usage") or {}
+        self.usage["input_tokens"] += int(u.get("input_tokens") or 0)
+        self.usage["output_tokens"] += int(u.get("output_tokens") or 0)
+        self.usage["cost_usd"] += float(data.get("total_cost_usd") or 0)
+        return data.get("result", "")
 
     def decide(self, ctx: dict) -> dict:
         system, user = build_prompt(ctx, self.cfg)
-        schema_hint = "Reply with ONLY a JSON object matching this schema, no prose:\n" + json.dumps(DECISION_SCHEMA)
-        return _extract_json(self._run(system + "\n\n" + user + "\n\n" + schema_hint))
+        schema_hint = "Reply with ONLY a JSON object matching this schema, no prose, no code fences:\n" + json.dumps(DECISION_SCHEMA)
+        return _extract_json(self._run(user + "\n\n" + schema_hint, system=system))
 
     def write(self, system: str, user: str) -> str:
-        return self._run(system + "\n\n" + user)
+        return self._run(user, system=system)
 
 
 class RulesBrain:
@@ -154,7 +177,7 @@ class RulesBrain:
         st = self.cfg["strategy"]
         held = {p["symbol"]: p for p in ctx["positions"]}
         out = []
-        for sym, s in ctx["market"].items():
+        for sym, s in ctx["snapshot"].items():
             d = {"symbol": sym, "action": "HOLD", "allocation_pct": 0, "confidence": 0.5,
                  "stop_loss_pct": 0, "target_pct": 0, "reason": "No clear setup."}
             if "sma9" not in s:
@@ -186,10 +209,121 @@ class RulesBrain:
         raise RuntimeError("rules brain cannot write narrative insights")
 
 
+def find_claude() -> str | None:
+    """Locate the Claude Code CLI, including default install paths that a
+    double-clicked .bat may not have on PATH."""
+    exe = shutil.which("claude")
+    if exe:
+        return exe
+    from pathlib import Path
+    home = Path.home()
+    for c in (home / ".local" / "bin" / "claude.exe", home / ".local" / "bin" / "claude",
+              home / "AppData" / "Roaming" / "npm" / "claude.cmd", Path("/usr/local/bin/claude"),
+              Path("/opt/homebrew/bin/claude")):
+        if c.exists():
+            return str(c)
+    return None
+
+
+def _neutral_dir() -> str:
+    """Run the CLI outside the project so it does not pick up project instructions."""
+    import tempfile
+    from pathlib import Path
+    d = Path(tempfile.gettempdir()) / "arena-claude"
+    d.mkdir(exist_ok=True)
+    return str(d)
+
+
+def claude_logged_in(exe: str | None = None) -> bool | None:
+    """True/False from `claude auth status`, or None if this CLI version cannot say."""
+    import json as _json
+    exe = exe or find_claude()
+    if not exe:
+        return False
+    try:
+        r = subprocess.run([exe, "auth", "status", "--json"], capture_output=True, text=True, timeout=20,
+                           cwd=_neutral_dir())
+        return bool(_json.loads(r.stdout or "{}").get("loggedIn"))
+    except Exception:
+        return None
+
+
+INSTALL_CMD = {
+    "nt": ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "irm https://claude.ai/install.ps1 | iex"],
+    "posix": ["bash", "-c", "curl -fsSL https://claude.ai/install.sh | bash"],
+}
+
+
+def open_terminal(args: list[str]) -> None:
+    """Open a visible terminal window running `args`, so the person can see and
+    answer it (sign-in, installer). Never runs hidden."""
+    import os
+    import shlex
+    import sys
+    if os.name == "nt":
+        subprocess.Popen(["cmd", "/k", *args], creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=_neutral_dir())
+        return
+    line = " ".join(shlex.quote(a) for a in args)
+    if sys.platform == "darwin":
+        esc = line.replace("\\", "\\\\").replace('"', '\\"')
+        subprocess.Popen(["osascript", "-e", f'tell application "Terminal" to do script "{esc}"',
+                          "-e", 'tell application "Terminal" to activate'])
+        return
+    for term in (["x-terminal-emulator", "-e"], ["gnome-terminal", "--"], ["konsole", "-e"], ["xterm", "-e"]):
+        if shutil.which(term[0]):
+            subprocess.Popen(term + ["bash", "-lc", line + "; exec bash"])
+            return
+    raise RuntimeError("No terminal window found. Run this yourself: " + line)
+
+
+def claude_login() -> str:
+    exe = find_claude()
+    if not exe:
+        raise RuntimeError("Claude Code is not installed yet.")
+    open_terminal([exe, "auth", "login"])
+    return "A window opened. Sign in with your Claude account in the browser, then come back here."
+
+
+def claude_install() -> str:
+    import os
+    open_terminal(INSTALL_CMD["nt" if os.name == "nt" else "posix"])
+    return "Installing Claude Code in a new window. When it finishes, press Sign in."
+
+
+def claude_status(run_ping: bool = False, model: str = "") -> dict:
+    """What the Start button will use, and (optionally) a live round-trip test."""
+    import os
+    import time as _t
+    exe = find_claude()
+    out = {"cli": bool(exe), "cli_path": exe or "", "api_key": bool(os.environ.get("ANTHROPIC_API_KEY")), "version": ""}
+    if exe:
+        try:
+            v = subprocess.run([exe, "--version"], capture_output=True, text=True, timeout=20)
+            out["version"] = (v.stdout or "").strip().split("\n")[0]
+        except Exception as e:
+            out["version_error"] = str(e)[:200]
+        out["logged_in"] = claude_logged_in(exe)
+    if run_ping:
+        t0 = _t.time()
+        try:
+            if exe:
+                b = ClaudeCLIBrain({"strategy": {"cli_model": model}})
+                reply = b._run("Reply with exactly the word READY.", timeout=120)
+            elif out["api_key"]:
+                b = ClaudeAPIBrain({"strategy": {"model": "claude-haiku-5-5", "effort": "low"}})
+                reply = b._call("You are a connectivity check.", "Reply with exactly the word READY.", None, max_tokens=50)
+            else:
+                raise RuntimeError("No Claude Code login or ANTHROPIC_API_KEY found.")
+            out.update(ok="READY" in reply.upper(), reply=reply.strip()[:80], seconds=round(_t.time() - t0, 1))
+        except Exception as e:
+            out.update(ok=False, error=str(e)[:300], seconds=round(_t.time() - t0, 1))
+    return out
+
+
 def make_brain(cfg: dict):
     name = cfg["strategy"]["brain"]
     if name == "auto":  # Claude Code login if available, else API key, else free rules
         import os
-        name = "claude-cli" if shutil.which("claude") else "claude-api" if os.environ.get("ANTHROPIC_API_KEY") else "rules"
+        name = "claude-cli" if find_claude() else "claude-api" if os.environ.get("ANTHROPIC_API_KEY") else "rules"
         cfg["strategy"]["brain"] = name
     return {"claude-api": ClaudeAPIBrain, "claude-cli": ClaudeCLIBrain, "rules": RulesBrain}[name](cfg)

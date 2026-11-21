@@ -10,7 +10,7 @@ from datetime import datetime
 
 import pandas as pd
 
-from ..clock import now_ist
+from ..markets import IN, Market
 from .base import CANDLE_COLS, PriceFeed, Quote, resample, to_ist_index
 
 
@@ -18,10 +18,12 @@ class YahooFeed(PriceFeed):
     name = "yahoo"
     live = True
 
-    def __init__(self, suffix: str = ".NS", cache_seconds: int = 20):
+    def __init__(self, market: Market = IN, cache_seconds: int = 20):
         import yfinance  # noqa: F401  (fail early with a clear error if missing)
 
-        self.suffix = suffix
+        self.market = market
+        self.name = "yahoo-" + market.code.lower()
+        self.suffix = market.yahoo_suffix
         self.cache_seconds = cache_seconds
         self._cache: dict[str, pd.DataFrame] = {}
         self._cache_at = 0.0
@@ -40,7 +42,7 @@ class YahooFeed(PriceFeed):
                 if isinstance(df.columns, pd.MultiIndex):
                     df = df.droplevel(0, axis=1) if t in df.columns.get_level_values(0) else df.droplevel(1, axis=1)
                 df = df.rename(columns=str.lower)[CANDLE_COLS].dropna(subset=["close"])
-                out[s] = to_ist_index(df)
+                out[s] = to_ist_index(df, self.market.tz)
             except KeyError:
                 continue
         return out
@@ -77,7 +79,7 @@ class YahooFeed(PriceFeed):
         if df is None or df.empty:
             return pd.DataFrame(columns=CANDLE_COLS)
         dates = sorted(set(df.index.date))[-days:]
-        return resample(df[pd.Index(df.index.date).isin(dates)], interval_min)
+        return resample(df[pd.Index(df.index.date).isin(dates)], interval_min, self.market.open.minute)
 
     def history(self, symbols: list[str], period: str = "60d", interval: str = "5m") -> dict[str, pd.DataFrame]:
         """Bulk download for replay. Yahoo keeps ~7 days of 1m and ~60 days of 5m bars."""

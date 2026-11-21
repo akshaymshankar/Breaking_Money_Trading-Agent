@@ -8,13 +8,15 @@ from .base import BarReplayFeed, PriceFeed, Quote, to_ist_index
 
 
 def make_live_feed(cfg: dict) -> PriceFeed:
+    from ..markets import market_of
+    mk = market_of(cfg)
     name = cfg["market"]["feed"]
-    if name == "upstox":
+    if name == "upstox" and mk.code == "IN":
         from .upstox import UpstoxFeed
         return UpstoxFeed(cache_dir=cfg["paths"]["data_dir"])
     if name == "yahoo":
         from .yahoo import YahooFeed
-        return YahooFeed()
+        return YahooFeed(mk)
     raise ValueError(f"Unknown live feed '{name}'. Use 'upstox' or 'yahoo'.")
 
 

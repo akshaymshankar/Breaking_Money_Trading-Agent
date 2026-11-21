@@ -8,11 +8,12 @@ from datetime import datetime, timedelta
 
 from . import insights, report
 from .brain import RulesBrain, make_brain
-from .clock import CLOSE, is_market_open, next_open, parse_hhmm
+from .clock import parse_hhmm
 from .db import Journal
 from .engine import PaperBroker
 from .feeds.base import PriceFeed
 from .indicators import snapshot
+from .markets import market_of
 
 log = logging.getLogger("arena")
 
@@ -36,6 +37,11 @@ class Runner:
         self.last_snapshot = None
         self.last_report = 0.0
         self.stop_requested = False  # set by the GUI's Stop button
+        self.market = market_of(cfg)
+        self.phase = "starting"      # shown in the UI: starting | waiting | trading | deciding | paused | complete
+        self.phase_detail = ""
+        self.last_decision_at = None
+        self.decisions_made = 0
 
     def _sleep(self, seconds: float) -> None:
         """Live: sleep in 1 s slices so Stop takes effect quickly. Replay: advance the clock."""
@@ -55,7 +61,7 @@ class Runner:
         self.day_start_equity = self.broker.equity
         self.killed = False
         self.next_decision = now
-        log.info("=== Day %d  %s  equity Rs %.2f ===", self.days_done() + 1, self.day, self.day_start_equity)
+        log.info("=== Day %d  %s  equity %s ===", self.days_done() + 1, self.day, self.market.money(self.day_start_equity))
 
     def close_day(self, now: datetime) -> None:
         d = self.day.isoformat()
@@ -75,7 +81,8 @@ class Runner:
                  (self.run_id, d, day_no, round(self.day_start_equity, 2), round(end_eq, 2),
                   round(end_eq - self.day_start_equity, 2), stats["n"], stats["w"] or 0, stats["l"] or 0,
                   round(stats["c"], 2), ndec, json.dumps(notes)))
-        log.info("=== Day %d closed: P&L Rs %+.2f, equity Rs %.2f ===", day_no, end_eq - self.day_start_equity, end_eq)
+        log.info("=== Day %d closed: P&L %s, equity %s ===", day_no, self.market.money(end_eq - self.day_start_equity, True),
+                 self.market.money(end_eq))
         self.day = None
         self.write_report()
 
@@ -118,7 +125,8 @@ class Runner:
         lessons = [n for r in self.j.q("SELECT insights FROM days WHERE run_id=? ORDER BY date DESC LIMIT 3", (self.run_id,))
                    for n in json.loads(r["insights"] or "[]")[:3]]
         return {
-            "time_ist": now.strftime("%Y-%m-%d %H:%M"),
+            "market": f"{self.market.name} ({self.market.exchange}), prices in {self.market.currency}",
+            "time_local": now.strftime("%Y-%m-%d %H:%M ") + self.market.tz_abbr,
             "challenge_day": f"{self.days_done() + 1} of {self.cfg['account']['challenge_days']}",
             "account": {
                 "equity": round(b.equity, 2), "cash": round(b.cash, 2),
@@ -129,7 +137,7 @@ class Runner:
             },
             "positions": positions,
             "entries_allowed": now.time() < self.cutoff and not self.killed,
-            "market": market,
+            "snapshot": market,
             "recent_trades": recent,
             "lessons_from_previous_days": lessons,
         }
@@ -137,12 +145,19 @@ class Runner:
     def decide_and_execute(self, now: datetime, quotes) -> None:
         ctx = self.build_context(now, quotes)
         brain = self.brain
+        self.phase, self.phase_detail = "deciding", f"Asking {brain.name} for calls"
+        log.info("Asking %s for decisions on %d symbols...", brain.name, len(ctx["snapshot"]))
+        t0 = _time.time()
         try:
             out = brain.decide(ctx)
+            log.info("%s answered in %.0fs: %s", brain.name, _time.time() - t0, (out.get("market_view") or "")[:160])
         except Exception as e:
             log.warning("%s failed (%s); using rules fallback for this cycle.", brain.name, e)
             brain = self.fallback
             out = brain.decide(ctx)
+        self.last_decision_at = now
+        self.decisions_made += 1
+        self.phase, self.phase_detail = "trading", ""
         view = out.get("market_view", "")
         # Orders reach the market after the decision: re-quote before filling.
         if not self.feed.live:
@@ -190,21 +205,25 @@ class Runner:
                 self.broker.snapshot(self.feed.now())
                 self.write_report()
                 log.info("Paused. Cash, positions and history are saved. Press Start to resume.")
+                self.phase, self.phase_detail = "paused", ""
                 return
             if self.feed.finished():
                 break
             now = self.feed.now()
             if self.day and now.date() != self.day:
                 self.close_day(now)
-            if not is_market_open(now, self.holidays):
+            if not self.market.is_open(now, self.holidays):
                 if self.day:
                     self.close_day(now)
                 if self.days_done() >= target_days:
                     break
                 if self.feed.live:
-                    nxt = next_open(now, self.holidays)
+                    nxt = self.market.next_open(now, self.holidays)
                     wait = (nxt - now).total_seconds()
-                    log.info("Market closed. Next open %s (in %.0f min). Waiting...", nxt.strftime("%a %d %b %H:%M"), wait / 60)
+                    self.phase = "waiting"
+                    self.phase_detail = f"{self.market.code} market closed · opens {nxt.strftime('%a %d %b %H:%M')} {self.market.tz_abbr}"
+                    log.info("%s market closed. Next open %s %s (in %.0f min). Waiting...", self.market.code,
+                             nxt.strftime("%a %d %b %H:%M"), self.market.tz_abbr, wait / 60)
                     self._sleep(min(max(wait, 5), 600))
                 else:
                     self._sleep(poll)
@@ -213,11 +232,14 @@ class Runner:
                 if self.days_done() >= target_days:
                     break
                 self.open_day(now)
+            if self.phase != "deciding":
+                self.phase, self.phase_detail = "trading", ""
             self.tick(now)
             self._sleep(poll)
         if self.day:
             self.close_day(self.feed.now())
         self.j.x("UPDATE runs SET status='complete', ended_at=? WHERE id=?", (self.feed.now().isoformat(), self.run_id))
+        self.phase, self.phase_detail = "complete", ""
         self.write_report()
         log.info("Run %d finished. Report: %s", self.run_id, self.report_path)
 

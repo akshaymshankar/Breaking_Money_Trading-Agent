@@ -36,8 +36,8 @@ def _brain_cfg(cfg: dict, brain: str | None) -> dict:
     if brain:
         cfg["strategy"]["brain"] = brain
     if cfg["strategy"]["brain"] == "auto":
-        import shutil
-        cfg["strategy"]["brain"] = ("claude-cli" if shutil.which("claude")
+        from .brain import find_claude
+        cfg["strategy"]["brain"] = ("claude-cli" if find_claude()
                                     else "claude-api" if os.environ.get("ANTHROPIC_API_KEY") else "rules")
     return cfg
 

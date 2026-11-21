@@ -23,6 +23,15 @@ DEFAULTS = {
     "dp_charge_per_sell": 15.93,      # delivery sells, per scrip per day (incl. GST)
 }
 
+# US equities at a commission-free broker: only regulatory fees on sells.
+US_DEFAULTS = {
+    "commission_per_share": 0.0,
+    "commission_min": 0.0,
+    "sec_fee_per_million": 27.80,     # SEC Section 31 fee on sell proceeds
+    "finra_taf_per_share": 0.000166,  # FINRA Trading Activity Fee on sells...
+    "finra_taf_cap": 8.30,            # ...capped per trade
+}
+
 
 @dataclass
 class ChargeBreakdown:
@@ -33,10 +42,13 @@ class ChargeBreakdown:
     stamp: float = 0.0
     gst: float = 0.0
     dp: float = 0.0
+    sec_fee: float = 0.0
+    finra_taf: float = 0.0
 
     @property
     def total(self) -> float:
-        return round(self.brokerage + self.stt + self.exchange + self.sebi + self.stamp + self.gst + self.dp, 2)
+        return round(self.brokerage + self.stt + self.exchange + self.sebi + self.stamp + self.gst + self.dp
+                     + self.sec_fee + self.finra_taf, 2)
 
     def as_dict(self) -> dict:
         d = {k: round(v, 2) for k, v in asdict(self).items()}
@@ -44,7 +56,20 @@ class ChargeBreakdown:
         return d
 
 
-def compute(side: str, qty: int, price: float, product: str, rates: dict | None = None) -> ChargeBreakdown:
+def compute_us(side: str, qty: int, price: float, rates: dict | None = None) -> ChargeBreakdown:
+    r = {**US_DEFAULTS, **(rates or {})}
+    c = ChargeBreakdown()
+    if qty > 0 and r["commission_per_share"]:
+        c.brokerage = max(qty * r["commission_per_share"], r["commission_min"])
+    if side.upper() == "SELL":
+        c.sec_fee = qty * price * r["sec_fee_per_million"] / 1e6
+        c.finra_taf = min(qty * r["finra_taf_per_share"], r["finra_taf_cap"])
+    return c
+
+
+def compute(side: str, qty: int, price: float, product: str, rates: dict | None = None, market: str = "IN") -> ChargeBreakdown:
+    if market == "US":
+        return compute_us(side, qty, price, rates)
     r = {**DEFAULTS, **(rates or {})}
     turnover = qty * price
     side = side.upper()

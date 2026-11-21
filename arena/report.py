@@ -21,8 +21,8 @@ def _e(x) -> str:
 def _rs(x: float, sign: bool = False) -> str:
     s = f"{abs(x):,.2f}"
     if sign:
-        return ("+" if x >= 0 else "−") + "₹" + s
-    return ("−" if x < 0 else "") + "₹" + s
+        return ("+" if x >= 0 else "−") + ins.cur() + s
+    return ("−" if x < 0 else "") + ins.cur() + s
 
 
 def _cls(x: float) -> str:
@@ -32,6 +32,9 @@ def _cls(x: float) -> str:
 def write(j: Journal, run_id: int, path: str | Path, live: bool = False) -> Path:
     run = j.one("SELECT * FROM runs WHERE id=?", (run_id,))
     cfg = json.loads(run["config_json"])
+    from .markets import market_of
+    mk = market_of(cfg)
+    ins.set_currency(mk.symbol)
     cap = run["starting_capital"]
     acct = j.one("SELECT * FROM account WHERE run_id=?", (run_id,))
     positions = j.q("SELECT * FROM positions WHERE run_id=?", (run_id,))
@@ -177,6 +180,9 @@ def write(j: Journal, run_id: int, path: str | Path, live: bool = False) -> Path
         "{{VIEWTS}}": _e(last_view["ts"][:16].replace("T", " ")) if last_view else "",
         "{{BOARD}}": board,
         "{{DATA}}": json.dumps(chart_data).replace("</", "<\\/"),
+        "{{CUR}}": mk.symbol,
+        "{{LOCALE}}": mk.locale,
+        "{{FEES}}": "US regulatory fees" if mk.code == "US" else "Indian charges",
     }.items():
         page = page.replace(k, v)
     out = Path(path)
@@ -274,7 +280,7 @@ footer{color:var(--muted);font-size:11px;margin-top:24px;text-align:center}
 </style></head><body><div class="wrap">
 <header>
   <div><div class="brand">Breaking Money · AI Trading Arena</div><h1>{{NAME}}</h1><div class="sub">{{SUB}}</div></div>
-  <div class="badges"><span class="badge paper">PAPER ONLY · VIRTUAL ₹</span><span class="badge {{STATUSCLS}}">{{STATUS}}</span></div>
+  <div class="badges"><span class="badge paper">PAPER ONLY · VIRTUAL {{CUR}}</span><span class="badge {{STATUSCLS}}">{{STATUS}}</span></div>
 </header>
 <div class="grid">
 <section class="card wide">
@@ -300,14 +306,14 @@ footer{color:var(--muted);font-size:11px;margin-top:24px;text-align:center}
 <section class="card wide"><h2>Trade log</h2><div class="tbl">{{TRADES}}</div></section>
 <section class="card wide"><h2>Leaderboard <small>all runs in this database</small></h2><div class="tbl"><table><tr><th>Run</th><th>Name</th><th>Brain</th><th>Mode</th><th>Realised P&amp;L</th><th>Return</th><th>Status</th></tr>{{BOARD}}</table></div></section>
 </div>
-<footer>Simulation only. Virtual money, real prices, modelled slippage and Indian charges. No real orders are ever placed. Not investment advice.</footer>
+<footer>Simulation only. Virtual money, real prices, modelled slippage and {{FEES}}. No real orders are ever placed. Not investment advice.</footer>
 </div>
 <script>
 const D={{DATA}};
 const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const NS="http://www.w3.org/2000/svg";
 function el(t,a,p){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);p&&p.appendChild(e);return e}
-const fmt=v=>(v<0?"−":"")+"₹"+Math.abs(v).toLocaleString("en-IN",{maximumFractionDigits:0});
+const fmt=v=>(v<0?"−":"")+"{{CUR}}"+Math.abs(v).toLocaleString("{{LOCALE}}",{maximumFractionDigits:0});
 function frame(host,W,H){const s=el("svg",{viewBox:`0 0 ${W} ${H}`,role:"img"},host);const tip=document.createElement("div");tip.className="tip";host.appendChild(tip);return[s,tip]}
 function ticks(lo,hi,n){const st=Math.pow(10,Math.floor(Math.log10((hi-lo)/n||1)));const m=[1,2,2.5,5,10].map(x=>x*st).find(x=>(hi-lo)/x<=n)||st*10;const out=[];for(let v=Math.ceil(lo/m)*m;v<=hi+1e-9;v+=m)out.push(v);return out}
 function line(id){const host=document.getElementById(id),pts=D.equity;if(pts.length<2){host.innerHTML='<p class="muted">The curve appears after a few snapshots.</p>';return}

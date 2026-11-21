@@ -1,6 +1,3 @@
 @echo off
-cd /d %~dp0
-if not exist .venv call setup.bat
-call .venv\Scripts\activate
-python -m arena gui
-pause
+cd /d "%~dp0"
+call START-TRADING.bat %*

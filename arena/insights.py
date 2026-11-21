@@ -9,9 +9,23 @@ from datetime import datetime
 from .db import Journal
 
 
+import threading
+
+_local = threading.local()
+
+
+def set_currency(symbol: str) -> None:
+    """Currency symbol for text written on this thread (each agent runs on its own thread)."""
+    _local.symbol = symbol
+
+
+def cur() -> str:
+    return getattr(_local, "symbol", "₹")
+
+
 def _rs(x: float) -> str:
     sign = "−" if x < 0 else ""
-    return f"{sign}₹{abs(x):,.0f}"
+    return f"{sign}{cur()}{abs(x):,.0f}"
 
 
 def trade_stats(trades: list[dict]) -> dict:
@@ -154,7 +168,7 @@ def run_insights(j: Journal, run_id: int) -> list[str]:
     return out
 
 
-AI_SYSTEM = """You are a trading coach reviewing a PAPER-TRADING run of an AI agent on Indian stocks for a YouTube/Instagram
+AI_SYSTEM = """You are a trading coach reviewing a PAPER-TRADING run of an AI agent on stocks for a YouTube/Instagram
 series called Breaking Money. Write a punchy, honest review in Markdown with these sections:
 ## Verdict (2 sentences)  ## What worked  ## What hurt  ## Patterns in the AI's decisions  ## Changes for tomorrow (3 concrete rule changes)
 Use the numbers given. No hype, no financial advice disclaimers beyond one line at the end saying it is a simulation."""

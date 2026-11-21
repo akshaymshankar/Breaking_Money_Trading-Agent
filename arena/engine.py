@@ -14,6 +14,7 @@ from datetime import datetime
 from . import charges as charges_mod
 from .db import Journal
 from .feeds.base import Quote
+from .markets import market_of
 from .safety import PAPER_ONLY
 
 TICK = 0.05
@@ -40,9 +41,9 @@ class Position:
         return self.qty * ((self.last_price or self.avg_price) - self.avg_price)
 
 
-def round_tick(p: float, up: bool) -> float:
-    n = p / TICK
-    return round((math.ceil(n - 1e-9) if up else math.floor(n + 1e-9)) * TICK, 2)
+def round_tick(p: float, up: bool, tick: float = TICK) -> float:
+    n = p / tick
+    return round((math.ceil(n - 1e-9) if up else math.floor(n + 1e-9)) * tick, 2)
 
 
 class PaperBroker:
@@ -52,7 +53,9 @@ class PaperBroker:
         self.ex = cfg["execution"]
         self.st = cfg["strategy"]
         self.product = self.st["product"]
-        self.rates = cfg.get("charges", {})
+        self.market = market_of(cfg)
+        self.tick = self.market.tick
+        self.rates = cfg.get("charges_us", {}) if self.market.code == "US" else cfg.get("charges", {})
         acct = journal.one("SELECT * FROM account WHERE run_id=?", (run_id,))
         self.cash, self.realized = acct["cash"], acct["realized"]
         self.total_charges, self.total_slippage = acct["charges"], acct["slippage"]
@@ -99,8 +102,8 @@ class PaperBroker:
         if q.bar_volume > 0:
             bps += self.ex["impact_bps_per_pct_of_volume"] * 100 * qty / q.bar_volume
         if side == "BUY":
-            return round_tick(q.ltp * (1 + bps / 1e4), up=True)
-        return round_tick(q.ltp * (1 - bps / 1e4), up=False)
+            return round_tick(q.ltp * (1 + bps / 1e4), up=True, tick=self.tick)
+        return round_tick(q.ltp * (1 - bps / 1e4), up=False, tick=self.tick)
 
     def max_qty_by_liquidity(self, q: Quote) -> int:
         if q.bar_volume <= 0:
@@ -131,10 +134,10 @@ class PaperBroker:
         if qty < 1:
             return self._reject(ts, decision_id, s, "BUY", q, "not enough cash for one share")
         fill = self.fill_price("BUY", q, qty)
-        chg = charges_mod.compute("BUY", qty, fill, self.product, self.rates)
+        chg = charges_mod.compute("BUY", qty, fill, self.product, self.rates, self.market.code)
         while qty > 0 and qty * fill + chg.total > self.cash:
             qty -= 1
-            chg = charges_mod.compute("BUY", qty, fill, self.product, self.rates)
+            chg = charges_mod.compute("BUY", qty, fill, self.product, self.rates, self.market.code)
         if qty < 1:
             return self._reject(ts, decision_id, s, "BUY", q, "not enough cash after charges")
         self.cash -= qty * fill + chg.total
@@ -155,7 +158,7 @@ class PaperBroker:
             return self._reject(ts, decision_id, s, "SELL", q, "no position (long-only engine)")
         qty = p.qty
         fill = self.fill_price("SELL", q, qty)
-        chg = charges_mod.compute("SELL", qty, fill, self.product, self.rates)
+        chg = charges_mod.compute("SELL", qty, fill, self.product, self.rates, self.market.code)
         self.cash += qty * fill - chg.total
         self.total_charges += chg.total
         self.total_slippage += self._order(ts.isoformat(), decision_id, s, "SELL", qty, q.ltp, fill, chg, trigger, "filled", reason[:200])

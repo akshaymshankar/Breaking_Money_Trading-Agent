@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Trading Arena</title>
+<meta name="color-scheme" content="light dark">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/app.css">
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo"><svg class="i" viewBox="0 0 24 24"><path d="M3 17l5-5 4 4 8-9"/><path d="M15 7h5v5"/></svg></div>
+      <div><b>Breaking Money</b><span>Trading Arena</span></div>
+    </div>
+    <div>
+      <div class="nav-label">Workspace</div>
+      <nav>
+        <button class="nav-item on" data-view="trade"><svg class="i" viewBox="0 0 24 24"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 15l3-4 3 2 5-6"/></svg><span>Trade</span></button>
+        <button class="nav-item" data-view="agents"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.2"/><path d="M5.5 19.5c.8-3.2 3.4-5 6.5-5s5.7 1.8 6.5 5"/><circle cx="19" cy="6.5" r="2"/><circle cx="5" cy="6.5" r="2"/></svg><span>Agents</span><span class="count hidden" id="navCount">0</span></button>
+        <button class="nav-item" data-view="journal"><svg class="i" viewBox="0 0 24 24"><path d="M6 4h10a2 2 0 0 1 2 2v14H8a2 2 0 0 1-2-2z"/><path d="M6 18a2 2 0 0 1 2-2h10"/><path d="M10 8h5M10 11h4"/></svg><span>Journal</span></button>
+        <button class="nav-item" data-view="settings"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg><span>Settings</span></button>
+      </nav>
+    </div>
+    <div class="sidebar-foot">
+      <div class="claude-card">
+        <div class="row1">
+          <div class="claude-mark"><svg class="i" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/></svg></div>
+          <div style="min-width:0"><b id="claudeName">Claude</b><small id="claudeSub">Checking connection…</small></div>
+          <span class="dot" id="claudeDot" style="margin-left:auto"></span>
+        </div>
+        <button class="btn sm test" id="claudeTest">Test connection</button>
+      </div>
+      <div class="paper-note"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V7z"/></svg>Paper trading · virtual money only</div>
+    </div>
+  </aside>
+
+  <main>
+    <header class="topbar">
+      <div class="title"><h1 id="viewTitle">Trade</h1><div class="sub" id="viewSub">&nbsp;</div></div>
+      <div class="seg" id="regionSeg"><button data-r="US">United States</button><button data-r="IN">India</button></div>
+      <div class="pill" id="mktPill"><span class="dot"></span><span>—</span></div>
+      <button class="btn primary lg" id="startBtn"><svg class="i" viewBox="0 0 24 24"><path d="M7 5l12 7-12 7z" fill="currentColor" stroke="none"/></svg><span>Start trading</span></button>
+    </header>
+    <div class="strip" id="strip"></div>
+
+    <div class="views">
+      <!-- TRADE -->
+      <section class="view" id="view-trade">
+        <div class="banner hidden" id="closedBanner">
+          <div class="b-icon"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg></div>
+          <div><b id="cbTitle">Market closed</b><span id="cbText"></span></div>
+          <div class="actions"><button class="btn sm" id="practiceBtn">Practice on the last session</button></div>
+        </div>
+        <div class="trade-grid">
+          <div class="card">
+            <div class="card-head"><h3>Watchlist</h3><span class="meta" id="wlMeta"></span></div>
+            <div class="wl-list" id="watchlist"><div class="empty">Loading prices…</div></div>
+          </div>
+
+          <div class="card chart-card">
+            <div class="chart-head">
+              <div><div class="q-sym" id="qSym">—</div><div class="q-name" id="qName">&nbsp;</div></div>
+              <div><div class="q-px num" id="qPx">&nbsp;</div><div class="q-chg num" id="qChg">&nbsp;</div></div>
+              <div class="seg small" id="intervalSeg">
+                <button data-i="1m">1m</button><button data-i="5m" class="on">5m</button><button data-i="15m">15m</button><button data-i="1h">1H</button><button data-i="1D">1D</button>
+              </div>
+            </div>
+            <div id="chart"><div class="chart-loading" id="chartLoading">Loading chart…</div></div>
+            <div class="stats num" id="qStats"></div>
+          </div>
+
+          <div class="rail">
+            <div class="card acct">
+              <div class="acct-top">
+                <div class="agent-picker"><select id="agentPick" aria-label="Agent"></select></div>
+              </div>
+              <div class="eq num" id="aEq">—</div>
+              <div class="pnl num" id="aPnl">&nbsp;</div>
+              <div class="phase" id="aPhase"></div>
+              <div class="kv num">
+                <div>Cash<b id="aCash">—</b></div>
+                <div>Positions<b id="aPos">—</b></div>
+                <div>Trades<b id="aTrades">—</b></div>
+                <div>Win rate<b id="aWin">—</b></div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>Positions</h3><span class="meta" id="posMeta"></span></div>
+              <div id="positions"><div class="empty">No open positions</div></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>Claude's reasoning</h3>
+                <div class="seg small" id="decFilter" style="margin-left:auto"><button data-f="act" class="on">Trades</button><button data-f="all">All</button></div>
+              </div>
+              <div class="view-row hidden" id="marketView"></div>
+              <div class="feed" id="decisions"><div class="empty">Press Start and Claude's calls appear here, each with its reason.</div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- AGENTS -->
+      <section class="view hidden" id="view-agents">
+        <div class="hero">
+          <div class="card metric"><small>Agents running</small><b class="num" id="mRunning">0</b><span id="mRunningSub">&nbsp;</span></div>
+          <div class="card metric"><small>Fleet equity</small><b class="num" id="mEquity">—</b><span id="mEquitySub">&nbsp;</span></div>
+          <div class="card metric"><small>Leader</small><b id="mLeader">—</b><span class="num" id="mLeaderSub">&nbsp;</span></div>
+          <div class="card metric"><small>Decisions made</small><b class="num" id="mCycles">0</b><span id="mCyclesSub">&nbsp;</span></div>
+        </div>
+
+        <div class="section-head">
+          <div><h2>Spawn an agent</h2><p>Each agent is its own Claude Code process with its own persona, account and watchlist.</p></div>
+          <div class="actions">
+            <button class="btn" id="squadBtn"><svg class="i" viewBox="0 0 24 24"><circle cx="8" cy="9" r="2.6"/><circle cx="16" cy="9" r="2.6"/><path d="M3.5 18c.6-2.6 2.4-4 4.5-4s3.9 1.4 4.5 4M11.5 18c.6-2.6 2.4-4 4.5-4s3.9 1.4 4.5 4"/></svg>Spawn squad of 3</button>
+            <button class="btn primary" id="newAgentBtn"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>New agent</button>
+          </div>
+        </div>
+        <div class="presets" id="presets"></div>
+
+        <div class="section-head">
+          <div><h2>Fleet</h2><p id="fleetSub">Live agents trade the open market. Replay agents trade recent real sessions at full speed.</p></div>
+          <div class="actions"><button class="btn" id="stopAllBtn">Stop all</button></div>
+        </div>
+        <div class="agents" id="agents"></div>
+
+        <div class="section-head"><div><h2>Leaderboard</h2><p>Ranked by return on starting capital.</p></div></div>
+        <div class="card tbl-wrap"><table class="tbl num" id="board"></table></div>
+      </section>
+
+      <!-- JOURNAL -->
+      <section class="view hidden" id="view-journal">
+        <div class="journal-grid">
+          <div style="display:flex;flex-direction:column;gap:18px;min-width:0">
+            <div class="card">
+              <div class="card-head"><h3>Equity curve</h3>
+                <div class="agent-picker" style="max-width:260px;margin-left:auto"><select id="journalPick" aria-label="Agent"></select></div>
+                <a class="btn sm" id="reportLink" href="/report" target="_blank" rel="noopener">Full report</a>
+                <button class="btn sm" id="reviewBtn">Coach review</button>
+              </div>
+              <div id="eqChart"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>Closed trades</h3><span class="meta" id="tradesMeta"></span></div>
+              <div class="tbl-wrap"><table class="tbl num" id="tradesTbl"></table></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>Every call</h3><span class="meta">Most recent first</span></div>
+              <div class="tbl-wrap"><table class="tbl" id="callsTbl"></table></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Activity</h3><div class="seg small" id="logFilter" style="margin-left:auto"><button data-l="agent" class="on">This agent</button><button data-l="all">All</button></div></div>
+            <div class="log" id="log"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section class="view hidden" id="view-settings">
+        <div class="settings">
+          <div class="group-title">Market</div>
+          <div class="group">
+            <div class="field"><label>Default market<small>What the Start button trades</small></label><select id="s_region"><option value="US">United States</option><option value="IN">India</option></select></div>
+            <div class="field stack"><label>US watchlist<small>NYSE / Nasdaq tickers, comma separated</small></label><textarea id="s_watchlist_us"></textarea></div>
+            <div class="field stack"><label>India watchlist<small>NSE symbols, comma separated</small></label><textarea id="s_watchlist_in"></textarea></div>
+            <div class="field"><label>India price feed</label><select id="s_feed"><option value="yahoo">Yahoo (free)</option><option value="upstox">Upstox</option></select></div>
+          </div>
+
+          <div class="group-title">Claude</div>
+          <div class="group">
+            <div class="field"><label>Who decides</label><select id="s_brain"><option value="auto">Automatic</option><option value="claude-cli">Claude Code (my login)</option><option value="claude-api">Claude API key</option><option value="rules">Rules only (no AI)</option></select></div>
+            <div class="field"><label>Claude Code model<small>Blank uses your Claude Code default</small></label><select id="s_cli_model"><option value="">Default</option><option value="opus">Opus</option><option value="sonnet">Sonnet</option><option value="haiku">Haiku</option></select></div>
+            <div class="field"><label>Decide every<small>Minutes between Claude's calls</small></label><input id="s_decision_minutes" type="number" min="1"></div>
+            <div class="field stack"><label>Strategy notes<small>Plain English. Claude reads this before every decision.</small></label><textarea id="s_notes" placeholder="e.g. Only buy breakouts above the opening-range high with volume above 1.5x average."></textarea></div>
+          </div>
+
+          <div class="group-title">Account &amp; risk</div>
+          <div class="group">
+            <div class="field"><label>Starting capital<small>Virtual money, in the market's currency</small></label><input id="s_starting_capital" type="number" min="1000" step="1000"></div>
+            <div class="field"><label>Challenge length<small>Trading days</small></label><input id="s_challenge_days" type="number" min="1"></div>
+            <div class="field"><label>Risk profile</label><select id="s_profile"><option value="balanced">Balanced</option><option value="aggressive">Aggressive</option></select></div>
+            <div class="field"><label>Holding style</label><select id="s_product"><option value="intraday">Intraday (flat at close)</option><option value="delivery">Hold overnight</option></select></div>
+            <div class="field"><label>Max open positions</label><input id="s_max_positions" type="number" min="1"></div>
+            <div class="field"><label>Max per stock<small>% of equity</small></label><input id="s_max_position_pct" type="number" min="1" max="100"></div>
+            <div class="field"><label>Daily loss stop<small>% loss that closes everything for the day</small></label><input id="s_max_daily_loss_pct" type="number" step="0.5" min="0.5"></div>
+          </div>
+          <p class="group-note">Simulation only. The engine cannot place real orders: broker order endpoints and trading SDKs are blocked in code. Not investment advice.</p>
+
+          <div class="group-title">Appearance</div>
+          <div class="group">
+            <div class="field"><label>Theme</label><select id="themePick"><option value="">Match system</option><option value="light">Light</option><option value="dark">Dark</option></select></div>
+          </div>
+
+          <div class="save-row">
+            <button class="btn" id="demoBtn">Run offline demo</button>
+            <button class="btn primary" id="saveBtn">Save settings</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div class="sheet-bg hidden" id="sheet">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="sheet-head"><h2 id="sheetTitle">New agent</h2><button class="btn icon sm" id="sheetClose" aria-label="Close"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <div class="sheet-body">
+      <div class="full"><label>Start from</label><div class="preset-pick" id="sheetPresets"></div></div>
+      <div class="full"><label for="f_name">Name</label><input class="input" id="f_name" placeholder="e.g. Momentum Scout"></div>
+      <div class="full"><label for="f_persona">Persona &amp; strategy</label><textarea class="input" id="f_persona" placeholder="Describe how this agent should trade, in plain English."></textarea></div>
+      <div><label for="f_region">Market</label><select class="input" id="f_region"><option value="US">United States</option><option value="IN">India</option></select></div>
+      <div><label for="f_mode">Mode</label><select class="input" id="f_mode"><option value="live">Live market</option><option value="replay">Replay last session(s)</option></select></div>
+      <div><label for="f_model">Claude model</label><select class="input" id="f_model"><option value="">Claude Code default</option><option value="opus">Opus</option><option value="sonnet">Sonnet</option><option value="haiku">Haiku (fastest)</option></select></div>
+      <div><label for="f_minutes">Decide every (min)</label><input class="input" id="f_minutes" type="number" min="1" value="15"></div>
+      <div><label for="f_capital">Starting capital</label><input class="input" id="f_capital" type="number" min="1000" step="1000" value="100000"></div>
+      <div id="f_days_wrap"><label for="f_days">Replay sessions</label><input class="input" id="f_days" type="number" min="1" max="20" value="1"></div>
+      <div class="full"><label for="f_watchlist">Watchlist</label><input class="input" id="f_watchlist" placeholder="Leave blank for the market's default list"></div>
+    </div>
+    <div class="sheet-foot"><button class="btn" id="sheetCancel">Cancel</button><button class="btn primary" id="sheetSpawn">Spawn agent</button></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

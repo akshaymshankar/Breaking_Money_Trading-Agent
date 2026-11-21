@@ -1,70 +1,74 @@
 # Breaking Money · AI Trading Arena
 
-**I gave Claude ₹1,00,000 of virtual money and 15 trading days. This is the exact app it trades with. Now you can run your own.**
+**Give Claude virtual money and watch it trade the real US or Indian stock market. Press Start, and Claude makes every call with a written reason.**
 
-The Arena is a local AI paper-trading agent for Indian stocks (NSE). It watches live prices, lets **Claude** make BUY / SELL / HOLD calls with a written reason for each one, fills them in a realistic simulator (spread, slippage and real Indian charges), and builds a results dashboard with P&L, win rate, drawdown and Claude's trade journal.
+The Arena runs on your own computer. It watches live prices and charts, asks **Claude** for BUY / SELL / HOLD on each decision, fills those calls in a realistic paper-trading simulator (spread, slippage and real fees), and shows your P&L, win rate and Claude's reasoning. You can also run a whole team of Claude agents side by side, each with its own style, and rank them on a leaderboard.
 
-> ⚠️ **Paper trading only. Not financial advice.** This app uses virtual money and **cannot place real orders**: broker order URLs and trading SDKs are blocked, and it refuses to start if `paper_only` is switched off. Simulated results are not real returns. Read [DISCLAIMER.md](DISCLAIMER.md).
+> ⚠️ **Paper trading only. Not financial advice.** The app uses virtual money and **cannot place real orders**: broker order URLs and trading SDKs are blocked, and it refuses to start if `paper_only` is switched off. Simulated results are not real returns. Read [DISCLAIMER.md](DISCLAIMER.md).
 
-**What you need:** a Windows or Mac computer, [Python 3.11 or newer](https://www.python.org/downloads/), and about 5 minutes. No broker account and no paid data. Prices come free from Yahoo Finance.
+**What you need:** a Windows, Mac or Linux computer, internet, and a **Claude Pro or Max** plan (Claude trades using your own Claude login). No broker account, no API key and no paid data.
 
 ---
 
-## Quick start
+## Quick start (about 5 minutes)
 
-### 1. Get the code
+### 1. Download
 
-Either click the green **Code** button on this page, choose **Download ZIP** and unzip it, or run:
+Click the green **Code** button on this page → **Download ZIP**, then unzip it anywhere (for example your Desktop).
 
-```bash
-git clone https://github.com/akshaymshankar/Breaking_Money_Trading-Agent.git
-cd Breaking_Money_Trading-Agent
-```
+### 2. Double-click to start
 
-### 2. Install and open the Arena
+| Windows | Mac | Linux |
+|---|---|---|
+| Double-click **`START-TRADING.bat`** | Right-click **`start-trading.command`** → **Open** (the first time only, so macOS lets it run) | Run `./start-trading.command` in a terminal |
 
-**Windows:** install Python from python.org and **tick "Add python.exe to PATH"** on the first installer screen. Then double-click **`setup.bat`**, and after it finishes, double-click **`START-TRADING.bat`**.
+The first run sets everything up for you and asks before installing anything:
 
-**Mac:** open Terminal in the folder and run:
+1. **Python.** If you don't have Python 3.11 or newer, it offers to install it (Windows Package Manager on Windows, Homebrew on Mac) or opens python.org.
+2. **App packages.** It installs everything the app needs into a private `.venv` folder inside the app, so nothing else on your computer changes. This takes 1 to 3 minutes, once.
+3. **Claude Code.** If it isn't installed, it offers to install it with the official claude.ai installer. Then it opens your browser so you can **sign in with your Claude account**. It never sees or stores your password.
+4. **The app.** The control panel opens in your browser.
 
-```bash
-./setup.sh
-./start-trading.command
-```
+After the first time, the same double-click opens the app in a few seconds. Keep the black window open while you use the app. Closing it quits.
 
-The control panel opens in your browser. Press **Start** during market hours (09:15 to 15:30 IST, Monday to Friday), or try the offline demo first:
+### 3. Press Start
 
-```bash
-# Windows: .venv\Scripts\activate     Mac: source .venv/bin/activate
-python -m arena demo        # 15 days of made-up prices, runs in seconds, opens the results page
-```
+- **Market open?** Press **Start** and Claude begins trading. Its calls and reasons appear under *Claude's reasoning*, and its buys and sells are marked on the chart.
+- **Market closed?** Start arms Claude for the next open. To see it work right away, press **Practice on the last session**, which replays the most recent real trading day.
+- **Several agents?** Open **Agents** → **Spawn squad of 3**, or pick a style (Momentum, Mean Reversion, Breakout, Risk Guardian, Index). Each one is its own Claude, with its own money and watchlist.
 
-### 3. Choose who makes the calls
+The sidebar card at the bottom left shows whether Claude is connected. If something is missing, the card's button changes to **Install Claude Code** or **Sign in with Claude**, so you can fix it without leaving the app.
 
-The app picks the best option it finds automatically (`brain = "auto"` in `config.toml`):
+**Markets:** United States (NYSE / Nasdaq, 9:30 to 16:00 New York time) is the default. Switch to India (NSE, 9:15 to 15:30 IST) at the top of the Trade screen or in Settings.
+
+### Other ways to let Claude decide
+
+The app uses your Claude Code login when it finds one. Otherwise:
 
 | Option | Cost | How |
 |---|---|---|
-| **Claude Code** (recommended) | Included with a Claude Pro / Max plan | Install [Claude Code](https://claude.com/claude-code) and log in once. The Arena finds it on its own. |
-| **Anthropic API key** | Pay per use, roughly a few US dollars per trading day with the defaults | Open `.env` (created by setup), paste `ANTHROPIC_API_KEY=...` from [console.anthropic.com](https://console.anthropic.com). |
-| **Built-in rules** | Free | Used automatically if neither of the above is set up. No AI, a simple momentum strategy to compare against. |
+| **Claude Code** (recommended) | Included with Claude Pro / Max | Done for you by the launcher above. |
+| **Anthropic API key** | Pay per use | Open the `.env` file in the app folder and paste `ANTHROPIC_API_KEY=...` from [console.anthropic.com](https://console.anthropic.com). |
+| **Built-in rules** | Free | Used automatically when neither of the above is set up. No AI, a simple momentum strategy to compare against. |
 
-Run `python -m arena check` any time to see which one is active and to watch the real-money block in action.
+Each agent asks Claude once per decision interval (every 5 minutes by default), so three agents use your plan's limits about three times as fast. Pick **Haiku** in Settings for the lightest usage.
 
-### 4. Run your own challenge
+### Run your own challenge
 
-1. In the control panel open **Settings**: starting capital (default ₹1,00,000), number of days (default 15), risk profile (**Balanced** or **Aggressive**), and your watchlist.
+1. Open **Settings**: starting capital, number of days, risk profile (**Balanced** or **Aggressive**) and your watchlist.
 2. Press **Start**. Leave the computer on and awake during market hours. Stop any time; Start again resumes the same challenge with the same cash and positions.
-3. Each evening, open the dashboard (or `reports/results.html`) to see the day's P&L and every call Claude made, with its reason.
+3. Open **Journal** any time for the equity curve, every trade and every call Claude made, with its reason.
 
-Want to try your own strategy idea? Write it in plain English in **Settings → Notes** (or `notes` under `[strategy]` in `config.toml`), for example *"Only buy breakouts above the opening-range high with volume above 1.5x average."* Claude reads it before every decision.
+Want to try your own strategy idea? Write it in plain English in **Settings → Strategy notes**, for example *"Only buy breakouts above the opening-range high with volume above 1.5x average."* Claude reads it before every decision.
 
 ### Troubleshooting
 
-- **"Python was not found"** on Windows: reinstall Python and tick *Add python.exe to PATH*, or install it from the Microsoft Store.
-- **Mac says the file can't be opened:** run `chmod +x setup.sh start-trading.command` in Terminal, or right-click the file and choose **Open**.
-- **No prices / "no quotes returned":** the market is closed or Yahoo is briefly unavailable. Try again during market hours, or run the offline `demo`.
-- **Nothing happens after Start:** the agent waits for 09:15 IST. Outside market hours it sleeps until the next open.
+- **Windows protected your PC (blue box):** click **More info** → **Run anyway**. It appears because the file came from the internet.
+- **Mac says the file can't be opened:** right-click it and choose **Open**. If it still refuses, run `chmod +x start-trading.command setup.sh` in Terminal from the app folder.
+- **Packages failed to install:** check your internet connection and double-click again. It repairs a broken install automatically. If it still fails, delete the `.venv` folder and try once more.
+- **Claude card says "not signed in":** press **Sign in with Claude** in the sidebar, finish the sign-in in your browser, and the card turns green on its own.
+- **No prices:** the market is closed or Yahoo is briefly unavailable. Use **Practice on the last session**, or try again during market hours.
+- **Port already in use:** the app picks the next free port and prints the address in the black window. Close any old Arena windows first.
 
 ---
 
@@ -136,10 +140,17 @@ With the defaults (10 stocks, a decision every 15 minutes, `claude-opus-5-5` at 
 ## Files
 
 ```
+START-TRADING.bat / start-trading.command   double-click launchers (Windows / Mac, Linux)
+launch.py        first-run setup: Python env, packages, Claude Code sign-in, then opens the app
 arena/
+  gui.py         local web server for the control panel (http://127.0.0.1:8787)
+  web/           the control panel itself (HTML, CSS, JS)
+  fleet.py       multiple agents, each its own Claude Code process
+  markets.py     US and India market hours, currency, ticks
+  marketdata.py  watchlist quotes, index strip and chart candles
   safety.py      real-money block (allow-list, SDK import block, paper_only lock)
   engine.py      virtual account, fills, stops, square-off
-  charges.py     Indian charges (edit rates in config.toml)
+  charges.py     US regulatory fees and Indian charges (edit rates in config.toml)
   brain.py       Claude API / Claude CLI / rules baseline
   runner.py      market loop, used for live, replay and demo
   insights.py    analytics + plain-English observations + Claude coach review

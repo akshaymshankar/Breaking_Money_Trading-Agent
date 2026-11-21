@@ -23,7 +23,7 @@ from arena.runner import Runner  # noqa: E402
 
 
 def cfg_tmp(tmp: str) -> dict:
-    cfg = load_config()
+    cfg = load_config(overrides={"market": {"region": "IN"}})  # the suite exercises the NSE rules
     cfg["paths"].update(db=f"{tmp}/t.db", report=f"{tmp}/r.html", data_dir=tmp, log=f"{tmp}/l.log")
     cfg["strategy"]["brain"] = "rules"
     return cfg
@@ -164,7 +164,7 @@ class FakeClaude:
             raise RuntimeError("simulated API outage")
         held = {p["symbol"] for p in ctx["positions"]}
         decs = []
-        for i, sym in enumerate(ctx["market"]):
+        for i, sym in enumerate(ctx["snapshot"]):
             if sym in held and self.calls % 2 == 0:
                 decs.append(dict(symbol=sym, action="SELL", allocation_pct=0, confidence=0.7, stop_loss_pct=0, target_pct=0, reason="take profit"))
             elif i < 2 and sym not in held:
