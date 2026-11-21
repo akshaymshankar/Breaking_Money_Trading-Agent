@@ -1,0 +1,608 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Week One</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Breaking Money · Week One: Claude paper trading setup for Indian and US markets.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a terminal-meets-ticker strip on top, then one reading column (~68ch) with full-width bands for links and booking. */
+:root {
+  --bg: #0b0b0a;
+  --surface: #151513;
+  --line: #2a2a26;
+  --fg: #f4f4ef;
+  --muted: #9a9a90;
+  --accent: #ddeb79;
+  --accent-ink: #0b0b0a;
+  --up: #7fd88f;
+  --down: #ff8a7a;
+  --display: "Geist", "Inter", system-ui, sans-serif;
+  --body: "Geist", "Inter", system-ui, sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #fafaf6; --surface: #ffffff; --line: #e3e3da; --fg: #121210; --muted: #63635a;
+    --accent: #5f6b00; --accent-ink: #fafaf6; --up: #1f7a33; --down: #b3261e; color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #fafaf6; --surface: #ffffff; --line: #e3e3da; --fg: #121210; --muted: #63635a;
+  --accent: #5f6b00; --accent-ink: #fafaf6; --up: #1f7a33; --down: #b3261e; color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { animation: none !important; transition: none !important; } }
+body { background: var(--bg); color: var(--fg); font: 400 16px/1.65 var(--body); -webkit-font-smoothing: antialiased; }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+.wrap { max-width: 1080px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.col { max-width: 720px; }
+h1, h2, h3 { font-family: var(--display); line-height: 1.12; text-wrap: balance; margin: 0; letter-spacing: -0.02em; }
+p { margin: 0; }
+.mono { font-family: var(--mono); }
+.eyebrow { font: 500 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+
+/* top bar */
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+.top .wrap { display: flex; align-items: center; gap: 16px; padding-block: 12px; flex-wrap: wrap; }
+.brand { font: 700 15px/1 var(--display); letter-spacing: -0.01em; text-decoration: none; display: flex; align-items: center; gap: 8px; }
+.brand i { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); display: inline-block; }
+.tabs { display: flex; gap: 4px; margin-left: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
+.tabs a { text-decoration: none; font: 500 13px/1 var(--body); padding: 8px 14px; border-radius: 999px; color: var(--muted); }
+.tabs a[aria-current="page"] { background: var(--accent); color: var(--accent-ink); }
+
+/* quick links strip: the first thing on every view */
+.links { border-bottom: 1px solid var(--line); }
+.links .wrap { display: flex; flex-wrap: wrap; gap: 8px; padding-block: 14px; }
+.chip { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; font: 500 13px/1 var(--mono); padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); transition: border-color .15s; }
+.chip:hover { border-color: var(--accent); }
+.chip b { font-weight: 500; color: var(--muted); }
+.chip.solid { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.chip.solid b { color: inherit; opacity: .7; }
+
+/* ticker tape: real US and NSE session facts, not prices */
+.tape { overflow: hidden; border-bottom: 1px solid var(--line); white-space: nowrap; font: 400 12px/1 var(--mono); color: var(--muted); }
+.tape div { display: inline-block; padding-block: 10px; animation: tape 48s linear infinite; }
+.tape span { margin-right: 40px; }
+.tape em { font-style: normal; color: var(--accent); }
+@keyframes tape { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+/* hero */
+.hero { padding-block: 56px 40px; display: grid; gap: 20px; }
+.hero h1 { font-size: clamp(34px, 6vw, 60px); font-weight: 800; max-width: 16ch; }
+.hero h1 em { font-style: normal; color: var(--accent); }
+.hero .lede { font-size: 18px; color: var(--muted); max-width: 60ch; }
+.hero .cta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; font: 600 15px/1 var(--body); padding: 14px 20px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; color: var(--fg); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn:hover { filter: brightness(1.06); }
+
+/* market cards */
+.markets { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; padding-bottom: 48px; }
+.mk { border: 1px solid var(--line); border-radius: 16px; background: var(--surface); padding: 22px; display: grid; gap: 14px; min-width: 0; }
+.mk header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.mk h3 { font-size: 20px; }
+.mk .code { font: 500 12px/1 var(--mono); color: var(--accent); border: 1px solid var(--line); padding: 6px 8px; border-radius: 6px; }
+.mk dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; font-size: 14px; }
+.mk dt { color: var(--muted); }
+.mk dd { margin: 0; font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; text-align: right; }
+
+/* insights */
+section.block { padding-block: 48px; border-top: 1px solid var(--line); }
+section.block > .wrap { display: grid; gap: 28px; }
+section.block h2 { font-size: clamp(26px, 3.6vw, 36px); font-weight: 700; }
+.sub { color: var(--muted); max-width: 62ch; }
+.flow { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+.flow li { list-style: none; padding: 20px; border-right: 1px solid var(--line); display: grid; gap: 8px; align-content: start; min-width: 0; }
+.flow li:last-child { border-right: 0; }
+.flow ol { margin: 0; padding: 0; display: contents; }
+.flow .t { font: 500 12px/1 var(--mono); color: var(--accent); }
+.flow h3 { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+.flow p { font-size: 14px; color: var(--muted); }
+@media (max-width: 700px) { .flow li { border-right: 0; border-bottom: 1px solid var(--line); } .flow li:last-child { border-bottom: 0; } }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 28px 40px; }
+.ins { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.ins h3 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.ins p { color: var(--muted); font-size: 15px; }
+.ins code, .prose code { font: 400 13px/1.4 var(--mono); background: var(--surface); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; color: var(--fg); }
+
+pre.json { margin: 0; font: 400 13px/1.6 var(--mono); background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; overflow-x: auto; color: var(--fg); }
+pre.json .k { color: var(--muted); }
+pre.json .s { color: var(--accent); }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+@media (max-width: 820px) { .two { grid-template-columns: minmax(0, 1fr); } }
+
+table.fees { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tablebox { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; }
+table.fees th, table.fees td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.fees th { font: 500 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); background: var(--surface); }
+table.fees td.n { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.fees tr:last-child td { border-bottom: 0; }
+
+/* booking band */
+.book { background: var(--surface); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.book .wrap { padding-block: 56px; display: grid; gap: 28px; }
+.book .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.bk { border: 1px solid var(--line); border-radius: 16px; padding: 24px; display: grid; gap: 12px; background: var(--bg); align-content: start; }
+.bk h3 { font-size: 22px; }
+.bk p { color: var(--muted); }
+.bk ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 15px; display: grid; gap: 4px; }
+.bk .btn { justify-self: start; margin-top: 6px; }
+.contact { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 14px; color: var(--muted); }
+.contact .addr { font-family: var(--mono); color: var(--fg); user-select: all; }
+.copy { font: 500 12px/1 var(--mono); padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); cursor: pointer; }
+
+/* note */
+.note { padding-block: 40px 56px; }
+.note .box { border: 1px solid var(--line); border-radius: 16px; padding: 22px 24px; display: grid; gap: 8px; max-width: 760px; }
+.note h3 { font-size: 15px; font-family: var(--mono); font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.note p { color: var(--muted); font-size: 15px; }
+.note strong { color: var(--fg); font-weight: 600; }
+footer { border-top: 1px solid var(--line); }
+footer .wrap { padding-block: 22px; display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; font: 400 13px/1.4 var(--mono); color: var(--muted); }
+footer a { text-decoration: none; }
+footer a:hover { color: var(--accent); }
+
+/* ---------- setup guide view ---------- */
+.guide { padding-block: 48px 24px; display: grid; gap: 40px; }
+.guide-head { display: grid; gap: 14px; }
+.guide-head h1 { font-size: clamp(32px, 5vw, 48px); font-weight: 800; }
+.toc { display: flex; flex-wrap: wrap; gap: 8px; }
+.toc a { text-decoration: none; font: 500 13px/1 var(--mono); padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); color: var(--muted); }
+.toc a:hover { color: var(--fg); border-color: var(--accent); }
+.gsec { display: grid; gap: 16px; scroll-margin-top: 80px; }
+.gsec h2 { font-size: 26px; font-weight: 700; }
+.prose { display: grid; gap: 12px; color: var(--muted); }
+.prose strong { color: var(--fg); font-weight: 600; }
+.prose ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.req { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.req div { border: 1px solid var(--line); border-radius: 12px; padding: 16px; background: var(--surface); display: grid; gap: 4px; }
+.req b { font-size: 15px; }
+.req span { font-size: 14px; color: var(--muted); }
+.os { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 4px; width: fit-content; max-width: 100%; flex-wrap: wrap; }
+.os button { font: 500 14px/1 var(--body); padding: 10px 16px; border-radius: 9px; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+.os button[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; counter-reset: s; border-left: 1px solid var(--line); margin-left: 14px; }
+.steps > li { counter-increment: s; position: relative; padding: 0 0 28px 34px; display: grid; gap: 8px; }
+.steps > li:last-child { padding-bottom: 0; }
+.steps > li::before { content: counter(s); position: absolute; left: -15px; top: -2px; width: 30px; height: 30px; border-radius: 50%; background: var(--bg); border: 1px solid var(--accent); color: var(--accent); font: 500 13px/28px var(--mono); text-align: center; }
+.steps h3 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.steps p, .steps li li { color: var(--muted); font-size: 15px; }
+.steps ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.cmd { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 10px 10px 14px; min-width: 0; }
+.cmd code { font: 400 13px/1.5 var(--mono); overflow-x: auto; white-space: pre; flex: 1; min-width: 0; color: var(--fg); }
+.cmd code::before { content: "$ "; color: var(--muted); }
+.tip { border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 10px; padding: 14px 16px; font-size: 14px; color: var(--muted); background: var(--surface); }
+.tip strong { color: var(--fg); }
+.faq { display: grid; gap: 8px; }
+.faq details { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.faq summary { cursor: pointer; padding: 14px 16px; font-weight: 600; font-size: 15px; list-style: none; display: flex; justify-content: space-between; gap: 12px; }
+.faq summary::after { content: "+"; font-family: var(--mono); color: var(--accent); }
+.faq details[open] summary::after { content: "–"; }
+.faq details p { padding: 0 16px 16px; color: var(--muted); font-size: 15px; }
+.pager { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 8px; }
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg); font: 500 13px/1 var(--mono); padding: 12px 16px; border-radius: 10px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.toast.show { opacity: 1; }
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#week-one"><i></i>Breaking Money</a>
+    <nav class="tabs" aria-label="Pages">
+      <a href="#week-one" data-view="week-one">Week One</a>
+      <a href="#setup" data-view="setup">Setup guide</a>
+    </nav>
+  </div>
+</header>
+
+<div class="links">
+  <div class="wrap">
+    <a class="chip solid" href="https://breakingmoney.in" target="_blank" rel="noopener"><b>Website</b> breakingmoney.in</a>
+    <a class="chip" href="https://github.com/akshaymshankar/Breaking_Money_Trading-Agent" target="_blank" rel="noopener"><b>GitHub</b> Breaking_Money_Trading-Agent</a>
+    <a class="chip" href="#setup"><b>Docs</b> Setup guide</a>
+    <a class="chip" href="#book"><b>1:1</b> Book a session</a>
+  </div>
+</div>
+
+<!-- ================= WEEK ONE ================= -->
+<main id="view-week-one" data-page="week-one">
+  <div class="tape" aria-hidden="true"><div>
+    <span>NYSE · NASDAQ <em>09:30–16:00 ET</em></span><span>= <em>20:00–02:30 IST</em> (winter)</span><span>NSE <em>09:15–15:30 IST</em></span><span>US tick <em>$0.01</em></span><span>NSE tick <em>₹0.05</em></span><span>Claude call every <em>15 min</em></span><span>Price check every <em>30 s</em></span><span>Real orders <em>blocked</em></span>
+    <span>NYSE · NASDAQ <em>09:30–16:00 ET</em></span><span>= <em>20:00–02:30 IST</em> (winter)</span><span>NSE <em>09:15–15:30 IST</em></span><span>US tick <em>$0.01</em></span><span>NSE tick <em>₹0.05</em></span><span>Claude call every <em>15 min</em></span><span>Price check every <em>30 s</em></span><span>Real orders <em>blocked</em></span>
+  </div></div>
+
+  <div class="wrap">
+    <div class="hero">
+      <span class="eyebrow">Week One · Live build</span>
+      <h1>Claude paper trading setup for <em>Indian</em> and <em>US</em> markets</h1>
+      <p class="lede">We connected Claude to a paper trading engine. Press Start and Claude reads live prices, decides BUY, SELL or HOLD with a written reason, and a simulator fills the call with realistic costs. Virtual money only. Below is how it works, then a step-by-step setup you can follow tonight.</p>
+      <div class="cta">
+        <a class="btn primary" href="#setup">Open the setup guide →</a>
+        <a class="btn" href="https://github.com/akshaymshankar/Breaking_Money_Trading-Agent" target="_blank" rel="noopener">Get the code on GitHub</a>
+      </div>
+    </div>
+
+    <div class="markets">
+      <article class="mk">
+        <header><h3>United States</h3><span class="code">NYSE · NASDAQ</span></header>
+        <dl>
+          <dt>Session</dt><dd>09:30–16:00 ET</dd>
+          <dt>In India</dt><dd>20:00–02:30 IST*</dd>
+          <dt>No new entries after</dt><dd>15:20 ET</dd>
+          <dt>Auto square-off</dt><dd>15:50 ET</dd>
+          <dt>Price step</dt><dd>$0.01</dd>
+          <dt>Default watchlist</dt><dd>AAPL MSFT NVDA SPY +6</dd>
+        </dl>
+      </article>
+      <article class="mk">
+        <header><h3>India</h3><span class="code">NSE</span></header>
+        <dl>
+          <dt>Session</dt><dd>09:15–15:30 IST</dd>
+          <dt>No new entries after</dt><dd>14:45 IST</dd>
+          <dt>Auto square-off</dt><dd>15:15 IST</dd>
+          <dt>Price step</dt><dd>₹0.05</dd>
+          <dt>Starting capital</dt><dd>₹1,00,000 virtual</dd>
+          <dt>Default watchlist</dt><dd>RELIANCE TCS HDFCBANK +7</dd>
+        </dl>
+      </article>
+    </div>
+  </div>
+
+  <section class="block">
+    <div class="wrap">
+      <div class="col" style="display:grid;gap:12px">
+        <span class="eyebrow">How one decision works</span>
+        <h2>Claude decides. Code executes.</h2>
+        <p class="sub">Claude never touches the account directly. It reads a market snapshot and answers in a fixed format. Everything after that, from position size to stop-loss to the closing bell, is plain code that behaves the same way every time.</p>
+      </div>
+      <div class="flow"><ol>
+        <li><span class="t">every 30 s</span><h3>Watch prices</h3><p>Pull 5-minute candles for the watchlist and check open stops and targets on every poll.</p></li>
+        <li><span class="t">every 15 min</span><h3>Build a snapshot</h3><p>Price, VWAP, RSI, opening-range high and low, volume vs average, plus cash and open positions.</p></li>
+        <li><span class="t">~10 s</span><h3>Ask Claude</h3><p>Snapshot goes to Claude Code on your own login. Claude replies with an action, size, stop and a reason.</p></li>
+        <li><span class="t">instant</span><h3>Check the rules</h3><p>Code enforces max positions, max 20% per stock, cash, the entry cutoff and the daily loss limit.</p></li>
+        <li><span class="t">fresh price</span><h3>Fill and journal</h3><p>Fill at the price after Claude answered, with spread, slippage and real fees. Every call is saved.</p></li>
+      </ol></div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <div class="two">
+        <div style="display:grid;gap:14px;min-width:0">
+          <span class="eyebrow">What Claude sends back</span>
+          <h2>A trade with a reason, every time</h2>
+          <p class="sub">The reply is structured, so the engine can read it and you can audit it later. If Claude's answer is malformed or breaks a rule, the engine treats it as HOLD. A bad answer can never turn into a bad trade.</p>
+        </div>
+        <pre class="json" aria-label="Example decision"><span class="k">{</span>
+  <span class="k">"market_view":</span> <span class="s">"SPY holding its opening-range
+     low; tech leading."</span>,
+  <span class="k">"decisions": [{</span>
+    <span class="k">"symbol":</span> <span class="s">"GOOGL"</span>,
+    <span class="k">"action":</span> <span class="s">"BUY"</span>,
+    <span class="k">"allocation_pct":</span> 10,
+    <span class="k">"confidence":</span> 0.7,
+    <span class="k">"stop_loss_pct":</span> 1.5,
+    <span class="k">"target_pct":</span> 3.0,
+    <span class="k">"reason":</span> <span class="s">"Reclaimed VWAP on 1.8x
+       volume, RSI 58 and rising."</span>
+  <span class="k">}]</span>
+<span class="k">}</span></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <div class="col" style="display:grid;gap:12px">
+        <span class="eyebrow">Technical insights</span>
+        <h2>Small details that keep paper results realistic</h2>
+      </div>
+      <div class="grid">
+        <div class="ins"><h3>The price moves while Claude thinks</h3><p>A decision takes about 10 seconds. The engine fetches a fresh price after the answer and fills against that, so a ₹1,500 signal can fill at ₹1,500.60. Paper trading that fills at the signal price looks better than real trading ever will.</p></div>
+        <div class="ins"><h3>Spread, slippage and market impact</h3><p>Each fill crosses half of a 4 bps spread, adds 3 bps slippage and pays extra when it takes a large share of the candle's volume. It never fills more than 5% of a bar.</p></div>
+        <div class="ins"><h3>Replay without looking ahead</h3><p>Practice mode replays a real past session on a virtual clock. Claude only sees candles that had closed at that moment, and orders fill on the next bar, about 60 seconds later.</p></div>
+        <div class="ins"><h3>Real money is blocked in code</h3><p>Only market-data addresses are allowed out. Broker order URLs and trading SDKs are blocked on import, and the app refuses to start if <code>paper_only</code> is turned off.</p></div>
+        <div class="ins"><h3>Your Claude login, no API key</h3><p>The app runs Claude Code in the background with <code>claude -p</code> and no tools enabled. It uses your Pro or Max plan, so there is no separate API bill.</p></div>
+        <div class="ins"><h3>Many agents, one database</h3><p>Each agent is its own Claude process with its own style, model, money and watchlist. They all write to one SQLite journal in WAL mode, so they can run side by side and land on one leaderboard.</p></div>
+        <div class="ins"><h3>How much of your plan it uses</h3><p>One call every 15 minutes is 26 calls per US session (6.5 h) and 25 per NSE session (6.25 h). Three agents means about three times that. Haiku is the lightest model to run extra agents on.</p></div>
+        <div class="ins"><h3>Intraday by default</h3><p>Every position is closed before the bell: 15:15 IST on NSE, 15:50 ET in the US. A 3% daily loss closes everything and stops new entries for the rest of the day.</p></div>
+        <div class="ins"><h3>Free market data, with a lag</h3><p>Prices come from Yahoo Finance at no cost and can trail the exchange by a few minutes. For NSE you can switch to the official Upstox API, which is free with an Upstox account.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <div class="col" style="display:grid;gap:12px">
+        <span class="eyebrow">Costs the simulator charges</span>
+        <h2>Real fee schedules, both markets</h2>
+        <p class="sub">Small trades lose more to fees than people expect. The engine applies these on every simulated fill, so the P&amp;L you see is after costs.</p>
+      </div>
+      <div class="tablebox">
+        <table class="fees">
+          <thead><tr><th>Charge</th><th>India (NSE intraday)</th><th>United States</th></tr></thead>
+          <tbody>
+            <tr><td>Brokerage</td><td class="n">0.03%, max ₹20 per order</td><td class="n">$0 (commission-free)</td></tr>
+            <tr><td>Transaction tax</td><td class="n">STT 0.025% on sells</td><td class="n">—</td></tr>
+            <tr><td>Exchange / regulator</td><td class="n">0.00297% + SEBI ₹10 per crore</td><td class="n">SEC $27.80 per $1M sold</td></tr>
+            <tr><td>Per-share fee</td><td class="n">—</td><td class="n">FINRA TAF $0.000166/share sold, max $8.30</td></tr>
+            <tr><td>Stamp duty</td><td class="n">0.003% on buys</td><td class="n">—</td></tr>
+            <tr><td>GST</td><td class="n">18% on brokerage + exchange</td><td class="n">—</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="sub" style="font-size:13px">Rates are in <code style="font:400 12px var(--mono)">config.toml</code>. Check your broker's current schedule and update them if they change. *US hours in IST shift one hour earlier (19:00–01:30) during US daylight saving time, March to November.</p>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <div class="two" style="align-items:center">
+        <div style="display:grid;gap:12px;min-width:0">
+          <span class="eyebrow">Next</span>
+          <h2>Set it up on your computer</h2>
+          <p class="sub">About 5 minutes. Download, double-click one file, sign in with your Claude account. The guide covers Windows, Mac and Linux.</p>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap"><a class="btn primary" href="#setup">Open the setup guide →</a></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ================= SETUP GUIDE ================= -->
+<main id="view-setup" data-page="setup" hidden>
+  <div class="wrap">
+    <div class="guide">
+      <div class="guide-head col">
+        <span class="eyebrow">Setup guide · Week One</span>
+        <h1>Run Claude's paper trading desk on your computer</h1>
+        <p class="sub" style="font-size:17px">From download to Claude's first call in about 5 minutes. The launcher installs everything it needs and asks before each install.</p>
+        <nav class="toc" aria-label="On this page">
+          <a href="#setup" data-jump="g-need">What you need</a>
+          <a href="#setup" data-jump="g-install">Install</a>
+          <a href="#setup" data-jump="g-first">First run</a>
+          <a href="#setup" data-jump="g-start">Start trading</a>
+          <a href="#setup" data-jump="g-agents">Agents</a>
+          <a href="#setup" data-jump="g-settings">Settings</a>
+          <a href="#setup" data-jump="g-help">Troubleshooting</a>
+        </nav>
+      </div>
+
+      <section class="gsec" id="g-need">
+        <h2>What you need</h2>
+        <div class="req">
+          <div><b>A computer</b><span>Windows 10/11, macOS or Linux. Leave it awake during market hours.</span></div>
+          <div><b>Claude Pro or Max</b><span>Claude trades on your own Claude login. No API key needed.</span></div>
+          <div><b>Internet</b><span>For live prices and Claude. Market data is free from Yahoo Finance.</span></div>
+          <div><b>No broker account</b><span>Everything is virtual. The app cannot place real orders.</span></div>
+        </div>
+      </section>
+
+      <section class="gsec" id="g-install">
+        <h2>Install</h2>
+        <div class="os" role="tablist" aria-label="Your computer">
+          <button role="tab" id="os-win" aria-selected="true" data-os="win">Windows</button>
+          <button role="tab" id="os-mac" aria-selected="false" data-os="mac">Mac</button>
+          <button role="tab" id="os-linux" aria-selected="false" data-os="linux">Linux</button>
+        </div>
+        <ol class="steps">
+          <li>
+            <h3>Download the code</h3>
+            <p>Open the GitHub page, click the green <strong>Code</strong> button, then <strong>Download ZIP</strong>. Unzip it anywhere, for example your Desktop.</p>
+            <div><a class="btn" href="https://github.com/akshaymshankar/Breaking_Money_Trading-Agent" target="_blank" rel="noopener">Open GitHub →</a></div>
+            <p>Or with git:</p>
+            <div class="cmd"><code>git clone https://github.com/akshaymshankar/Breaking_Money_Trading-Agent.git</code><button class="copy" type="button">Copy</button></div>
+          </li>
+          <li data-os-only="win">
+            <h3>Double-click START-TRADING.bat</h3>
+            <p>If a blue <strong>Windows protected your PC</strong> box appears, click <strong>More info</strong>, then <strong>Run anyway</strong>. It shows up because the file came from the internet.</p>
+          </li>
+          <li data-os-only="mac" hidden>
+            <h3>Right-click start-trading.command → Open</h3>
+            <p>Use right-click the first time so macOS lets it run. After that, a normal double-click works. If macOS still refuses, run this in Terminal from the folder:</p>
+            <div class="cmd"><code>chmod +x start-trading.command setup.sh</code><button class="copy" type="button">Copy</button></div>
+          </li>
+          <li data-os-only="linux" hidden>
+            <h3>Run the launcher</h3>
+            <p>Open a terminal in the folder and run:</p>
+            <div class="cmd"><code>./start-trading.command</code><button class="copy" type="button">Copy</button></div>
+          </li>
+          <li>
+            <h3>Answer the setup questions</h3>
+            <p>A window opens and walks through four checks. Type <strong>Y</strong> and press Enter when it asks to install something.</p>
+          </li>
+        </ol>
+      </section>
+
+      <section class="gsec" id="g-first">
+        <h2>What the first run does</h2>
+        <ol class="steps">
+          <li><h3>Python</h3><p>Looks for Python 3.11 or newer. If it is missing, it offers to install it (Windows Package Manager on Windows, Homebrew on Mac) or opens python.org.</p></li>
+          <li><h3>App packages</h3><p>Installs pandas, yfinance and the rest into a private <code>.venv</code> folder inside the app, so nothing else on your computer changes. Takes 1 to 3 minutes, once. If a package ever breaks, the next launch repairs it on its own.</p></li>
+          <li><h3>Claude Code</h3><p>If Claude Code is missing, it offers the official installer from claude.ai. Then your browser opens so you can <strong>sign in with your Claude account</strong>. The app never sees your password.</p></li>
+          <li><h3>Control panel</h3><p>The app opens in your browser at <code>http://127.0.0.1:8787</code>. Keep the black window open while you use it. Closing that window quits the app.</p></li>
+        </ol>
+        <div class="tip"><strong>Next time</strong> the same double-click opens the app in a few seconds. Setup only runs once.</div>
+      </section>
+
+      <section class="gsec" id="g-start">
+        <h2>Start trading</h2>
+        <div class="prose col">
+          <ul>
+            <li><strong>Pick a market</strong> with the United States / India switch at the top of the Trade screen. United States is the default.</li>
+            <li><strong>Check the Claude card</strong> at the bottom of the sidebar. Green means connected. If it says <strong>Sign in with Claude</strong> or <strong>Install Claude Code</strong>, press it and follow the window that opens.</li>
+            <li><strong>Press Start.</strong> During market hours Claude starts trading right away. Its calls and reasons appear under <em>Claude's reasoning</em>, and its buys and sells are marked on the chart.</li>
+            <li><strong>Market closed?</strong> Start arms Claude for the next open. To see it work right away, press <strong>Practice on the last session</strong>, which replays the most recent real trading day.</li>
+            <li><strong>Stop any time.</strong> Start again later and it resumes the same challenge with the same cash and positions.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="gsec" id="g-agents">
+        <h2>Run several agents</h2>
+        <div class="prose col">
+          <p>Open the <strong>Agents</strong> screen. Each agent is its own Claude with its own money, watchlist, market and model.</p>
+          <ul>
+            <li><strong>Spawn squad of 3</strong> creates three different styles in one click.</li>
+            <li>Or pick a style: <strong>Momentum</strong>, <strong>Mean Reversion</strong>, <strong>Breakout</strong>, <strong>Risk Guardian</strong> or <strong>Index</strong>. You can also write your own in plain English.</li>
+            <li>Choose <strong>Live</strong> to trade today's market or <strong>Replay</strong> to practice on a past session.</li>
+            <li>The <strong>leaderboard</strong> ranks every agent by return after costs.</li>
+          </ul>
+        </div>
+        <div class="tip"><strong>Plan limits:</strong> each agent asks Claude once per decision interval, so three agents use your plan about three times as fast. Choose <strong>Haiku</strong> for extra agents.</div>
+      </section>
+
+      <section class="gsec" id="g-settings">
+        <h2>Settings worth knowing</h2>
+        <div class="tablebox">
+          <table class="fees">
+            <thead><tr><th>Setting</th><th>Default</th><th>What it does</th></tr></thead>
+            <tbody>
+              <tr><td>Starting capital</td><td class="n">1,00,000</td><td>Virtual money for the challenge.</td></tr>
+              <tr><td>Challenge days</td><td class="n">15</td><td>The run stops after this many trading days.</td></tr>
+              <tr><td>Risk profile</td><td class="n">Balanced</td><td>Aggressive allows up to 3 concentrated positions of 35% each and a 6% daily loss limit.</td></tr>
+              <tr><td>Decide every</td><td class="n">15 min</td><td>How often Claude is asked for calls. Lower means more calls on your plan.</td></tr>
+              <tr><td>Claude Code model</td><td class="n">Default</td><td>Opus, Sonnet or Haiku. Blank uses your Claude Code default.</td></tr>
+              <tr><td>Strategy notes</td><td class="n">empty</td><td>Plain English rules Claude reads before every decision.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="tip"><strong>Try your own idea</strong> by writing it in Strategy notes, for example: "Only buy breakouts above the opening-range high with volume above 1.5x average."</div>
+      </section>
+
+      <section class="gsec" id="g-help">
+        <h2>Troubleshooting</h2>
+        <div class="faq">
+          <details><summary>Packages failed to install</summary><p>Check your internet connection and double-click the launcher again. It repairs a broken install by itself. If it still fails, delete the .venv folder inside the app and try once more.</p></details>
+          <details><summary>The Claude card says "not signed in"</summary><p>Press Sign in with Claude in the sidebar, finish the sign-in in your browser, and come back. The card turns green on its own within a few seconds.</p></details>
+          <details><summary>I pressed Start and nothing is happening</summary><p>The market is probably closed, so Claude is waiting for the open. Use Practice on the last session to see it trade now.</p></details>
+          <details><summary>No prices on the chart</summary><p>Yahoo Finance is briefly unavailable or the market has been closed for a while. Try Practice, or check again during market hours.</p></details>
+          <details><summary>"Port already in use"</summary><p>An older copy of the app is still running. Close every old Arena window. The app also picks the next free port and prints the address in the black window.</p></details>
+          <details><summary>Can this place real trades?</summary><p>No. Order addresses and broker trading libraries are blocked in code, and the app refuses to start if paper-only mode is turned off.</p></details>
+        </div>
+      </section>
+
+      <div class="pager">
+        <a class="btn" href="#week-one">← Back to Week One</a>
+        <a class="btn primary" href="#book" data-go="book">Book a 1:1 session →</a>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- ================= SHARED: BOOKING + NOTE ================= -->
+<section class="book" id="book">
+  <div class="wrap">
+    <div class="col" style="display:grid;gap:12px">
+      <span class="eyebrow">Work with us</span>
+      <h2 style="font-size:clamp(26px,3.6vw,36px)">Book time with Breaking Money</h2>
+      <p class="sub">Send a message to pick a slot. Tell us which one you want and a little about what you're working on.</p>
+    </div>
+    <div class="cards">
+      <article class="bk">
+        <span class="eyebrow">Meeting</span>
+        <h3>Book a meeting</h3>
+        <p>For collaborations, partnerships, workshops, or bringing this AI trading setup to your team or community.</p>
+        <a class="btn" href="https://ig.me/m/its.breaking.money" target="_blank" rel="noopener">Message to book →</a>
+      </article>
+      <article class="bk">
+        <span class="eyebrow">One-on-one</span>
+        <h3>Book a 1:1 session</h3>
+        <p>Strategy and education, one to one:</p>
+        <ul>
+          <li>Setting up and running your own Claude trading agents</li>
+          <li>Testing and refining a strategy idea in paper trading</li>
+          <li>Learning markets, risk and the technology behind them</li>
+        </ul>
+        <a class="btn primary" href="https://ig.me/m/its.breaking.money" target="_blank" rel="noopener">Message to book a 1:1 →</a>
+      </article>
+    </div>
+    <div class="contact">
+      <span>Or email</span><span class="addr">hello@breakingmoney.in</span><button class="copy" type="button" data-copy="hello@breakingmoney.in">Copy</button>
+      <span>· Instagram</span><a class="addr" href="https://instagram.com/its.breaking.money" target="_blank" rel="noopener">@its.breaking.money</a>
+    </div>
+  </div>
+</section>
+
+<div class="note">
+  <div class="wrap">
+    <div class="box">
+      <h3>Note</h3>
+      <p><strong>We are not SEBI-registered investment advisers.</strong> Breaking Money educates people on finance and technology. Nothing on this page or in our sessions is investment advice or a recommendation to buy or sell any security.</p>
+      <p>This project is paper trading only: virtual money, simulated fills. Simulated results do not represent real returns, and past performance does not guarantee future results. Do your own research before making any financial decision.</p>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <span>© Breaking Money · Week One</span>
+    <span><a href="https://breakingmoney.in" target="_blank" rel="noopener">breakingmoney.in</a> · <a href="https://github.com/akshaymshankar/Breaking_Money_Trading-Agent" target="_blank" rel="noopener">GitHub</a> · <a href="#setup">Setup guide</a></span>
+  </div>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  var views = ["week-one", "setup"];
+  function show(target) {
+    var view = views.indexOf(target) >= 0 ? target : "week-one";
+    views.forEach(function (v) { document.getElementById("view-" + v).hidden = v !== view; });
+    document.querySelectorAll(".tabs a").forEach(function (a) {
+      if (a.dataset.view === view) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+    });
+    if (target === "book") { document.getElementById("book").scrollIntoView(); return; }
+    window.scrollTo(0, 0);
+  }
+  function route() {
+    var h = location.hash.replace("#", "");
+    if (h === "book") { var cur = document.querySelector(".tabs a[aria-current]"); show(cur ? cur.dataset.view : "week-one"); document.getElementById("book").scrollIntoView(); return; }
+    show(h);
+  }
+  window.addEventListener("hashchange", route);
+  route();
+
+  // In-guide jumps without changing the view hash
+  document.querySelectorAll("[data-jump]").forEach(function (a) {
+    a.addEventListener("click", function (e) {
+      e.preventDefault();
+      if (location.hash !== "#setup") location.hash = "setup";
+      var el = document.getElementById(a.dataset.jump);
+      if (el) el.scrollIntoView();
+    });
+  });
+
+  // OS switcher for install steps
+  document.querySelectorAll(".os button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      document.querySelectorAll(".os button").forEach(function (x) { x.setAttribute("aria-selected", x === b ? "true" : "false"); });
+      document.querySelectorAll("[data-os-only]").forEach(function (li) { li.hidden = li.dataset.osOnly !== b.dataset.os; });
+    });
+  });
+  if (/Mac/i.test(navigator.platform || "")) document.getElementById("os-mac").click();
+  else if (/Linux/i.test(navigator.platform || "") && !/Android/i.test(navigator.userAgent)) document.getElementById("os-linux").click();
+
+  // Copy buttons
+  var toast = document.getElementById("toast"), tt;
+  function say(msg) { toast.textContent = msg; toast.classList.add("show"); clearTimeout(tt); tt = setTimeout(function () { toast.classList.remove("show"); }, 1800); }
+  document.querySelectorAll(".copy").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var text = b.dataset.copy || (b.previousElementSibling && b.previousElementSibling.textContent) || "";
+      var src = b.previousElementSibling;
+      function fallback() {
+        if (src) { var r = document.createRange(); r.selectNodeContents(src); var s = getSelection(); s.removeAllRanges(); s.addRange(r); }
+        say("Selected. Press Ctrl+C to copy");
+      }
+      try { navigator.clipboard.writeText(text).then(function () { say("Copied"); }, fallback); } catch (e) { fallback(); }
+    });
+  });
+})();
+</script>

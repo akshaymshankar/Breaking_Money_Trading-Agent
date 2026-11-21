@@ -51,7 +51,7 @@ The app uses your Claude Code login when it finds one. Otherwise:
 | **Anthropic API key** | Pay per use | Open the `.env` file in the app folder and paste `ANTHROPIC_API_KEY=...` from [console.anthropic.com](https://console.anthropic.com). |
 | **Built-in rules** | Free | Used automatically when neither of the above is set up. No AI, a simple momentum strategy to compare against. |
 
-Each agent asks Claude once per decision interval (every 5 minutes by default), so three agents use your plan's limits about three times as fast. Pick **Haiku** in Settings for the lightest usage.
+Each agent asks Claude once per decision interval (every 15 minutes by default), so three agents use your plan's limits about three times as fast. Pick **Haiku** in Settings for the lightest usage.
 
 ### Run your own challenge
 
