@@ -300,8 +300,27 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100vh; overf
 .dec { padding: 12px 18px; border-top: 1px solid var(--hairline); }
 .dec-top { display: flex; align-items: center; gap: 8px; }
 .act { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; padding: 2px 7px; border-radius: 5px; }
-.act.BUY { background: var(--green-soft); color: var(--green); }
-.act.SELL { background: var(--red-soft); color: var(--red); }
+.act.BUY, .act.COVER { background: var(--green-soft); color: var(--green); }
+.act.SELL, .act.SHORT { background: var(--red-soft); color: var(--red); }
+.short-tag { margin-left: 6px; font-size: 10px; font-weight: 700; letter-spacing: .04em; padding: 1px 6px; border-radius: 5px; background: var(--red-soft); color: var(--red); vertical-align: 1px; }
+.mood { padding: 2px 18px 16px; display: grid; gap: 12px; }
+.mood .empty { padding: 8px 0; }
+.mood-top { display: flex; align-items: baseline; gap: 8px; }
+.mood-top b { font: 600 26px/1 var(--font-display); letter-spacing: -.02em; }
+.mood-top span { font-size: 13px; color: var(--label-2); }
+.mood-bar { position: relative; height: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--red), var(--orange) 35%, var(--label-4) 50%, var(--green)); }
+.mood-bar i { position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%; background: var(--bg-elev); border: 3px solid var(--label); transform: translate(-50%, -50%); }
+.mood-ends { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--label-3); margin-top: -6px; }
+.mood p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--label-2); }
+.emo { display: flex; flex-wrap: wrap; gap: 6px; }
+.mood details { font-size: 12.5px; border-top: 1px solid var(--hairline); padding-top: 10px; }
+.mood summary { cursor: pointer; font-weight: 600; color: var(--label-2); }
+.mood ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
+.mood li { line-height: 1.4; overflow-wrap: anywhere; }
+.mood li a { color: var(--label); text-decoration: none; }
+.mood li a:hover { text-decoration: underline; }
+.mood li small { color: var(--label-3); display: block; }
+.mood li .dot { width: 7px; height: 7px; display: inline-block; margin-right: 8px; box-shadow: none; }
 .act.HOLD { background: var(--bg-press); color: var(--label-3); }
 .dec-top .s { font-weight: 600; }
 .dec-top .t { margin-left: auto; font-size: 11.5px; color: var(--label-3); }

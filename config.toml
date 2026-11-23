@@ -40,8 +40,27 @@ max_position_pct = 20          # max % of equity in one stock
 default_stop_loss_pct = 1.5
 default_target_pct = 3.0
 max_daily_loss_pct = 3.0       # kill switch: close everything and stop entries for the day
+# Short selling (paper): "off", "bear_only" (only while the desk reads a bear or panic market) or "always".
+# Intraday only: every short is covered by square-off time.
+short_mode = "bear_only"
+short_margin_pct = 100.0       # cash blocked on top of the sale proceeds (100 = no leverage)
+short_maintenance_pct = 30.0   # below this the engine covers by itself (margin call)
+short_borrow_annual_pct = 3.0  # stock-borrow fee for the time held
+max_shorts = 2
+max_short_position_pct = 10.0  # % of equity per short
+max_short_exposure_pct = 20.0  # % of equity, all shorts together
+short_min_confidence = 0.65
+short_max_stop_pct = 2.0
+short_default_stop_pct = 1.2
+short_default_target_pct = 2.0
 # Free-text guidance passed to Claude. Use it to try different styles across the series.
 notes = ""
+
+[intel]
+# World news and crowd emotion for the trading desk (public feeds, read-only, live sessions only).
+enabled = true
+refresh_minutes = 15           # one reading per market, shared by all agents
+claude_emotion = true          # let Claude read the emotion (one extra Claude call per refresh)
 
 [execution]
 spread_bps = 4                 # assumed bid-ask spread; we cross half of it

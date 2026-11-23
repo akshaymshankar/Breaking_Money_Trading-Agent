@@ -176,8 +176,27 @@ class Controller:
                 "max_position_pct": raw["strategy"]["max_position_pct"],
                 "max_daily_loss_pct": raw["strategy"]["max_daily_loss_pct"],
                 "notes": st.get("notes", ""),
+                "short_mode": st.get("short_mode", "bear_only"),
+                "intel_enabled": "on" if cfg.get("intel", {}).get("enabled", True) else "off",
             },
         }
+
+    def intel(self, region: str) -> dict:
+        """What the desk knows about this market. Uses the cached reading (never asks Claude on its own)."""
+        from .agents.desk import market_intel
+        from .agents.regime import assess
+        cfg = load_config(self.config_path)
+        if region not in MARKETS:
+            raise ValueError("unknown market")
+        if not cfg.get("intel", {}).get("enabled", True):
+            return {"enabled": False}
+        syms = cfg["market"].get(f"watchlist_{region.lower()}") or list(MARKETS[region].watchlist)
+        info = market_intel(region, syms, None, 60 * float(cfg.get("intel", {}).get("refresh_minutes", 15)))
+        quotes = marketdata.quotes(region, syms, ttl=60)
+        reg = assess({s: {"chg_pct": q["chg_pct"]} for s, q in quotes.items()}, info["gauges"])
+        return {"enabled": True, "region": region, "at": info["at"], "mood": info["mood"], "gauges": info["gauges"],
+                "headlines": info["headlines"][:20], "trace": info["trace"], "regime": reg,
+                "short_mode": cfg["strategy"].get("short_mode", "bear_only")}
 
     def save_settings(self, s: dict) -> str:
         if self.fleet.running:
@@ -202,6 +221,8 @@ class Controller:
             ("strategy", "max_positions"): max(1, int(s["max_positions"])),
             ("strategy", "max_position_pct"): float(s["max_position_pct"]),
             ("strategy", "max_daily_loss_pct"): float(s["max_daily_loss_pct"]),
+            ("strategy", "short_mode"): s["short_mode"] if s.get("short_mode") in ("off", "bear_only", "always") else "bear_only",
+            ("intel", "enabled"): s.get("intel_enabled") != "off",
             ("strategy", "notes"): str(s.get("notes", "")).replace("\n", " "),
         }
         for (section, key), val in updates.items():
@@ -284,6 +305,8 @@ def make_handler(ctl: Controller):
                     region = qs.get("region", "US").upper()
                     syms = qs.get("symbols", "").split(",")
                     return self._json({"quotes": marketdata.quotes(region, syms), "indices": marketdata.indices(region)})
+                if path == "/api/intel":
+                    return self._json(ctl.intel(qs.get("region", "US").upper()))
                 if path == "/api/candles":
                     region = qs.get("region", "US").upper()
                     sym = qs["symbol"].upper()

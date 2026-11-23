@@ -14,11 +14,13 @@ const ICONS = {
   "arrow.uturn": '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a5 5 0 0 1 0 10h-3"/>',
   "chart.up": '<path d="M4 18l6-6 4 4 6-7"/><path d="M15 9h5v5"/>',
   shield: '<path d="M12 3l8 4v5c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V7z"/>',
+  "chart.down": '<path d="M4 6l6 6 4-4 6 7"/><path d="M15 15h5v-5"/>',
+  people: '<circle cx="8" cy="9" r="2.8"/><circle cx="16.5" cy="9.5" r="2.3"/><path d="M3 18.5c.6-2.8 2.6-4.3 5-4.3s4.400 1.500 5 4.300M14.500 14.600c2.600-.4 4.800 1 5.500 3.900"/>',
   waveform: '<path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 11v2"/>',
   sparkle: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/>',
 };
 const icon = (k) => `<svg class="i" viewBox="0 0 24 24">${ICONS[k] || ICONS.sparkle}</svg>`;
-const PRESET_COLORS = { momentum: "#0A84FF", reversion: "#BF5AF2", breakout: "#FF9F0A", guardian: "#30D158", index: "#5E5CE6" };
+const PRESET_COLORS = { momentum: "#0A84FF", reversion: "#BF5AF2", breakout: "#FF9F0A", guardian: "#30D158", index: "#5E5CE6", bear: "#FF375F", crowd: "#64D2FF" };
 
 /* ---------- state ---------- */
 const S = {
@@ -30,7 +32,7 @@ const S = {
   symbol: store.get("symbol", null),
   interval: store.get("interval", "5m"),
   quotes: {}, indices: {},
-  detail: null,
+  detail: null, intel: null,
   decFilter: "act", logFilter: "agent",
   sheetPreset: null,
 };
@@ -248,12 +250,13 @@ function renderPositions() {
   const region = d.region;
   $("positions").innerHTML = list.map((p) => {
     const ltp = p.last_price || p.avg_price;
-    const pnl = (ltp - p.avg_price) * p.qty, pp = (ltp / p.avg_price - 1) * 100;
+    const short = p.qty < 0;
+    const pnl = (ltp - p.avg_price) * p.qty, pp = (ltp / p.avg_price - 1) * (short ? -100 : 100);
     // position of price between stop and target
     const span = p.target - p.stop || 1, at = Math.max(0, Math.min(1, (ltp - p.stop) / span)), en = Math.max(0, Math.min(1, (p.avg_price - p.stop) / span));
     const left = Math.min(at, en) * 100, width = Math.abs(at - en) * 100;
     return `<div class="pos-row" data-sym="${esc(p.symbol)}">
-      <div><div class="s">${esc(p.symbol)}</div><div class="d num">${p.qty} @ ${price(p.avg_price, region)} · stop ${price(p.stop, region)} · target ${price(p.target, region)}</div></div>
+      <div><div class="s">${esc(p.symbol)}${short ? '<span class="short-tag">SHORT</span>' : ""}</div><div class="d num">${Math.abs(p.qty)} @ ${price(p.avg_price, region)} · stop ${price(p.stop, region)} · target ${price(p.target, region)}</div></div>
       <div class="r num ${cls(pnl)}">${money(pnl, region, { sign: true })}<div class="d">${pct(pp)}</div></div>
       <div class="bar" title="Stop ← entry → target"><i style="left:${left}%;width:${Math.max(width, 1.5)}%;background:${pnl >= 0 ? "var(--green)" : "var(--red)"}"></i></div>
     </div>`;
@@ -279,6 +282,43 @@ function renderDecisions() {
       <p>${esc(x.reason)}</p>
       ${x.action !== "HOLD" ? `<div class="out"><span class="dot ${filled ? "green" : "orange"}" style="width:6px;height:6px;box-shadow:none"></span>${esc(x.outcome || "")}</div>` : ""}</div>`;
   }).join("");
+}
+
+const REGIME_TAG = { bull: "green", neutral: "", bear: "red", panic: "red" };
+function renderMood() {
+  const x = S.intel, box = $("mood"), tag = $("regimeTag");
+  const d = S.detail, run = d && d.region === S.region ? d : null;
+  // The agent's own regime (full data) beats the quick estimate, while that agent is working.
+  const a = focusAgent();
+  const reg = (run && a && a.running && run.regime) || (x && x.regime);
+  $("moodCard").classList.toggle("hidden", !!x && x.enabled === false);
+  tag.className = "tag " + (reg ? REGIME_TAG[reg.label] || "" : "");
+  tag.textContent = reg ? `${reg.label[0].toUpperCase() + reg.label.slice(1)} market` : "—";
+  tag.title = reg ? `Score ${reg.score}: ${reg.why}` : "";
+  if (!x || !x.mood) { box.innerHTML = `<div class="empty">${x && x.error ? "News is unavailable right now." : "Reading world news…"}</div>`; return; }
+  const m = x.mood, open = box.querySelectorAll("details"), was = [...open].map((e) => e.open);
+  const shorts = reg ? (x.short_mode === "off" ? "Short selling is off." : x.short_mode === "always" || ["bear", "panic"].includes(reg.label)
+    ? "Shorts can open." : "Shorts stay closed until the market turns bearish.") : "";
+  const emo = Object.entries(m.emotions || {}).filter(([, v]) => v >= 0.1).sort((p, q) => q[1] - p[1]).slice(0, 3);
+  const steps = (run && run.desk && run.desk.steps && run.desk.steps.length ? run.desk.steps : x.trace) || [];
+  box.innerHTML = `<div class="mood-top"><b class="num">${m.mood}</b><span>${esc(m.label)}</span></div>
+    <div class="mood-bar" role="img" aria-label="Mood ${m.mood} out of 100, ${esc(m.label)}"><i style="left:${Math.max(3, Math.min(97, m.mood))}%"></i></div>
+    <div class="mood-ends"><span>Fear</span><span>Greed</span></div>
+    <p>${esc(m.crowd_read)}</p>
+    ${emo.length ? `<div class="emo">${emo.map(([k, v]) => `<span class="tag">${esc(k)} ${Math.round(v * 100)}%</span>`).join("")}</div>` : ""}
+    ${shorts ? `<p>${shorts}</p>` : ""}
+    <details ${was[0] ? "open" : ""}><summary>Headlines</summary><ul>${(x.headlines || []).slice(0, 8).map((h) =>
+      `<li>${/^https?:\/\//.test(h.link) ? `<a href="${esc(h.link)}" target="_blank" rel="noopener noreferrer">${esc(h.title)}</a>` : esc(h.title)}<small>${esc(h.source)} · ${h.age_min < 60 ? h.age_min + "m" : Math.round(h.age_min / 60) + "h"} ago</small></li>`).join("")}</ul></details>
+    <details ${was[1] ? "open" : ""}><summary>Agent desk</summary><ul>${steps.map((t) =>
+      `<li><span class="dot ${t.status === "ok" ? "green" : t.status === "failed" ? "red" : "orange"}"></span>${esc(t.agent)}<small>${esc(t.summary)}</small></li>`).join("")}</ul></details>`;
+}
+async function loadIntel() {
+  const region = S.region;
+  if (!region) return;
+  try {
+    const d = await api("/api/intel?region=" + region);
+    if (region === S.region) { S.intel = d; renderMood(); }
+  } catch { /* keep last */ }
 }
 
 function renderBanner() {
@@ -340,8 +380,9 @@ async function loadChart(force) {
     const markers = (d.markers || []).map((m) => {
       // snap to the bar that contains the fill
       let t = m.time; for (let i = bars.length - 1; i >= 0; i--) { if (bars[i].time <= m.time) { t = bars[i].time; break; } }
-      return { time: t, position: m.side === "BUY" ? "belowBar" : "aboveBar", color: m.side === "BUY" ? c.up : c.down,
-        shape: m.side === "BUY" ? "arrowUp" : "arrowDown", text: `${m.side} ${m.qty}` };
+      const up = m.side === "BUY" || m.side === "COVER";
+      return { time: t, position: up ? "belowBar" : "aboveBar", color: up ? c.up : c.down,
+        shape: up ? "arrowUp" : "arrowDown", text: `${m.side} ${m.qty}` };
     }).filter((m) => bars.length && m.time >= bars[0].time).sort((x, y) => x.time - y.time);
     candleSeries.setMarkers(markers);
     chart.applyOptions({ timeScale: { timeVisible: S.interval !== "1D" } });
@@ -444,8 +485,8 @@ async function renderJournal() {
   }
   const tr = d.trades_list || [];
   $("tradesMeta").textContent = tr.length ? `${tr.length} trades · net ${money(tr.reduce((s, t) => s + t.net_pnl, 0), region, { sign: true })}` : "";
-  $("tradesTbl").innerHTML = tr.length ? `<thead><tr><th>Symbol</th><th>Entry</th><th>Exit</th><th class="r">Qty</th><th class="r">Buy</th><th class="r">Sell</th><th class="r">Net P&amp;L</th><th>Exit reason</th><th class="r">Held</th></tr></thead><tbody>` +
-    tr.map((t) => `<tr><td><b style="font-weight:600">${esc(t.symbol)}</b></td><td>${esc(hhmm(t.entry_ts))}</td><td>${esc(hhmm(t.exit_ts))}</td><td class="r">${t.qty}</td>
+  $("tradesTbl").innerHTML = tr.length ? `<thead><tr><th>Symbol</th><th>Entry</th><th>Exit</th><th class="r">Qty</th><th class="r">In</th><th class="r">Out</th><th class="r">Net P&amp;L</th><th>Exit reason</th><th class="r">Held</th></tr></thead><tbody>` +
+    tr.map((t) => `<tr><td><b style="font-weight:600">${esc(t.symbol)}</b>${t.side === "SHORT" ? '<span class="short-tag">SHORT</span>' : ""}</td><td>${esc(hhmm(t.entry_ts))}</td><td>${esc(hhmm(t.exit_ts))}</td><td class="r">${t.qty}</td>
       <td class="r">${price(t.entry_price, region)}</td><td class="r">${price(t.exit_price, region)}</td><td class="r ${cls(t.net_pnl)}">${money(t.net_pnl, region, { sign: true })}</td>
       <td>${esc((t.exit_reason || "").replace("_", " "))}</td><td class="r">${Math.round(t.hold_minutes)}m</td></tr>`).join("") + "</tbody>"
     : '<tbody><tr><td class="empty">No closed trades yet.</td></tr></tbody>';
@@ -453,7 +494,7 @@ async function renderJournal() {
   $("callsTbl").innerHTML = calls.length ? `<thead><tr><th>Time</th><th>Call</th><th>Symbol</th><th class="r">Conf.</th><th>Reason</th><th>Outcome</th></tr></thead><tbody>` +
     calls.map((x) => `<tr><td class="num">${esc(hhmm(x.ts))}</td><td><span class="act ${x.action}">${x.action}</span></td><td><b style="font-weight:600">${esc(x.symbol)}</b></td>
       <td class="r num">${Math.round((x.confidence || 0) * 100)}%</td><td class="wrap">${esc(x.reason)}</td><td class="wrap">${esc(x.outcome || "")}</td></tr>`).join("") + "</tbody>"
-    : '<tbody><tr><td class="empty">No BUY or SELL calls yet.</td></tr></tbody>';
+    : '<tbody><tr><td class="empty">No trade calls yet.</td></tr></tbody>';
   renderLog(d);
 }
 function renderLog(d) {
@@ -473,11 +514,11 @@ function fillSettings(force) {
   settingsLoaded = true;
 }
 async function saveSettings() {
-  const keys = ["region", "watchlist_us", "watchlist_in", "feed", "brain", "cli_model", "decision_minutes", "notes", "starting_capital", "challenge_days", "profile", "product", "max_positions", "max_position_pct", "max_daily_loss_pct"];
+  const keys = ["region", "watchlist_us", "watchlist_in", "feed", "brain", "cli_model", "decision_minutes", "notes", "starting_capital", "challenge_days", "profile", "product", "max_positions", "max_position_pct", "max_daily_loss_pct", "short_mode", "intel_enabled"];
   const body = {}; keys.forEach((k) => (body[k] = $("s_" + k).value));
   const r = await api("/api/settings", body);
   toast(r.msg === "ok" ? "Settings saved" : r.msg);
-  if (r.msg === "ok") { await poll(); fillSettings(true); loadQuotes(); }
+  if (r.msg === "ok") { await poll(); fillSettings(true); loadQuotes(); loadIntel(); }
 }
 
 /* ---------- sheet ---------- */
@@ -584,7 +625,8 @@ function setRegion(r) {
   S.region = r; store.set("region", r);
   const a = agentById(S.focus);
   if (a && a.region !== r) S.focus = null;
-  S.symbol = null; S.quotes = {}; S.indices = {}; S.detail = null;
+  S.symbol = null; S.quotes = {}; S.indices = {}; S.detail = null; S.intel = null;
+  renderMood(); loadIntel();
   render(); loadQuotes(); loadDetail(); scheduleChart();
 }
 
@@ -612,7 +654,7 @@ async function loadDetail() {
     const d = await api("/api/agent?id=" + a.id);
     const fillsChanged = !S.detail || S.detail.id !== d.id || (S.detail.fills || []).length !== (d.fills || []).length;
     S.detail = d;
-    renderPositions(); renderDecisions(); renderWatchlist();
+    renderPositions(); renderDecisions(); renderWatchlist(); renderMood();
     if (fillsChanged && S.view === "trade") loadChart(false);
     if (S.view === "journal" && S.journalId === d.id) renderJournal();
   } catch { /* ignore */ }
@@ -711,7 +753,8 @@ document.querySelectorAll("#intervalSeg button").forEach((x) => x.classList.togg
 (async function boot() {
   await poll();
   setView(S.view);
-  loadQuotes(); loadDetail(); scheduleChart();
+  loadQuotes(); loadDetail(); loadIntel(); scheduleChart();
+  setInterval(() => { if (!document.hidden) loadIntel(); }, 60000);
   setInterval(() => { if (!document.hidden) poll(); }, 2500);
   setInterval(() => { if (!document.hidden) loadDetail(); }, 3500);
   setInterval(() => { if (!document.hidden) loadQuotes(); }, 15000);

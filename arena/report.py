@@ -78,8 +78,8 @@ def write(j: Journal, run_id: int, path: str | Path, live: bool = False) -> Path
             day_cells.append(f'<div class="day todo{cur}"><b>Day {i + 1}</b><span>{"LIVE" if cur else "—"}</span><small>&nbsp;</small></div>')
 
     pos_rows = "".join(
-        f'<tr><td>{_e(p["symbol"])}</td><td class="n">{p["qty"]}</td><td class="n">{p["avg_price"]:.2f}</td>'
-        f'<td class="n">{(p["last_price"] or 0):.2f}</td><td class="n {_cls(p["last_price"] - p["avg_price"])}">'
+        f'<tr><td>{_e(p["symbol"])}{" (short)" if p["qty"] < 0 else ""}</td><td class="n">{abs(p["qty"])}</td><td class="n">{p["avg_price"]:.2f}</td>'
+        f'<td class="n">{(p["last_price"] or 0):.2f}</td><td class="n {_cls((p["last_price"] - p["avg_price"]) * p["qty"])}">'
         f'{_rs((p["last_price"] - p["avg_price"]) * p["qty"], True)}</td><td class="n">{p["stop"]:.2f}</td><td class="n">{p["target"]:.2f}</td>'
         f'<td class="r">{_e(p["entry_reason"])}</td></tr>' for p in positions
     ) or '<tr><td colspan="8" class="muted">Flat. No open positions.</td></tr>'
@@ -95,7 +95,7 @@ def write(j: Journal, run_id: int, path: str | Path, live: bool = False) -> Path
     by_exit = grp_rows(ins.group(trades, lambda t: t["exit_reason"].replace("_", " ")))
 
     def trade_row(t):
-        return (f'<tr><td>{_e(t["exit_ts"][:10])}</td><td>{_e(t["symbol"])}</td><td class="n">{t["qty"]}</td>'
+        return (f'<tr><td>{_e(t["exit_ts"][:10])}</td><td>{_e(t["symbol"])}{" (short)" if t["side"] == "SHORT" else ""}</td><td class="n">{t["qty"]}</td>'
                 f'<td class="n">{t["entry_price"]:.2f}</td><td class="n">{t["exit_price"]:.2f}</td>'
                 f'<td class="n">{t["entry_ts"][11:16]}→{t["exit_ts"][11:16]}</td><td class="n">{t["charges"]:.2f}</td>'
                 f'<td class="n {_cls(t["net_pnl"])}">{_rs(t["net_pnl"], True)}</td><td>{_e(t["exit_reason"].replace("_", " "))}</td></tr>')
@@ -119,7 +119,7 @@ def write(j: Journal, run_id: int, path: str | Path, live: bool = False) -> Path
                             9, "No closed trades yet.")
     call_rows = split_rows(calls, call_row,
                            "<tr><th>Time</th><th>Call</th><th>Stock</th><th>Conf.</th><th>Reason</th><th>Engine result</th></tr>",
-                           6, "No BUY/SELL calls yet.", first=15)
+                           6, "No trade calls yet.", first=15)
 
 
     run_notes = ins.run_insights(j, run_id)
@@ -270,7 +270,7 @@ td{padding:6px 8px;border-bottom:1px solid #1d2029;vertical-align:top}
 td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap} td.r{min-width:220px;color:var(--ink-2)}
 tr.me td{background:rgba(57,135,229,.08)}
 .act{font-size:10.5px;font-weight:800;padding:2px 7px;border-radius:6px;letter-spacing:.06em}
-.act.buy{background:rgba(12,163,12,.16);color:var(--up)} .act.sell{background:rgba(208,59,59,.16);color:var(--down)}
+.act.buy,.act.cover{background:rgba(12,163,12,.16);color:var(--up)} .act.sell,.act.short{background:rgba(208,59,59,.16);color:var(--down)}
 ul{margin:0;padding-left:18px} li{margin:4px 0}
 details{border-top:1px solid var(--line);padding:8px 0} summary{cursor:pointer}
 .md h3{font-size:14px;margin:14px 0 6px;color:var(--accent)} .md p{margin:6px 0}
@@ -302,7 +302,7 @@ footer{color:var(--muted);font-size:11px;margin-top:24px;text-align:center}
 <section class="card"><h2>P&amp;L by stock</h2><div class="tbl"><table><tr><th>Stock</th><th>Trades</th><th>Win%</th><th>Net</th></tr>{{BYSYM}}</table></div></section>
 <section class="card"><h2>P&amp;L by exit reason</h2><div class="tbl"><table><tr><th>Exit</th><th>Trades</th><th>Win%</th><th>Net</th></tr>{{BYEXIT}}</table></div></section>
 <section class="card wide"><h2>Day-by-day notes</h2>{{DAYNOTES}}</section>
-<section class="card wide"><h2>Claude's calls <small>latest BUY/SELL calls · {{NHOLDS}} HOLDs not shown</small></h2><div class="tbl">{{CALLS}}</div></section>
+<section class="card wide"><h2>Claude's calls <small>latest trade calls · {{NHOLDS}} HOLDs not shown</small></h2><div class="tbl">{{CALLS}}</div></section>
 <section class="card wide"><h2>Trade log</h2><div class="tbl">{{TRADES}}</div></section>
 <section class="card wide"><h2>Leaderboard <small>all runs in this database</small></h2><div class="tbl"><table><tr><th>Run</th><th>Name</th><th>Brain</th><th>Mode</th><th>Realised P&amp;L</th><th>Return</th><th>Status</th></tr>{{BOARD}}</table></div></section>
 </div>

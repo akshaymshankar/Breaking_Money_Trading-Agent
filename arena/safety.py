@@ -37,6 +37,15 @@ _ALLOWED = [
     ("api.upstox.com", r"^/v2/login/authorization/token$", {"POST"}),
     ("api.upstox.com", r"^/v2/user/profile$", {"GET"}),
     ("assets.upstox.com", r"^/market-quote/instruments/", {"GET"}),
+    # Public news feeds for the News Scout: these exact paths, read-only.
+    ("feeds.bbci.co.uk", r"^/news/(world|business)/rss\.xml$", {"GET"}),
+    ("www.aljazeera.com", r"^/xml/rss/all\.xml$", {"GET"}),
+    ("feeds.npr.org", r"^/1004/rss\.xml$", {"GET"}),
+    ("www.cnbc.com", r"^/id/\d+/device/rss/rss\.html$", {"GET"}),
+    ("feeds.content.dowjones.io", r"^/public/rss/mw_topstories$", {"GET"}),
+    ("economictimes.indiatimes.com", r"^/markets/rssfeeds/\d+\.cms$", {"GET"}),
+    ("www.livemint.com", r"^/rss/markets$", {"GET"}),
+    ("feeds.finance.yahoo.com", r"^/rss/2\.0/headline$", {"GET"}),
 ]
 
 # Belt and braces: even an allowed host is refused if the path smells like trading.

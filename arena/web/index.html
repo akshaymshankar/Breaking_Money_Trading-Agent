@@ -90,6 +90,10 @@
                 <div>Win rate<b id="aWin">—</b></div>
               </div>
             </div>
+            <div class="card" id="moodCard">
+              <div class="card-head"><h3>Market mood</h3><span class="tag" id="regimeTag" style="margin-left:auto">—</span></div>
+              <div class="mood" id="mood"><div class="empty">Reading world news…</div></div>
+            </div>
             <div class="card">
               <div class="card-head"><h3>Positions</h3><span class="meta" id="posMeta"></span></div>
               <div id="positions"><div class="empty">No open positions</div></div>
@@ -186,6 +190,8 @@
             <div class="field"><label>Challenge length<small>Trading days</small></label><input id="s_challenge_days" type="number" min="1"></div>
             <div class="field"><label>Risk profile</label><select id="s_profile"><option value="balanced">Balanced</option><option value="aggressive">Aggressive</option></select></div>
             <div class="field"><label>Holding style</label><select id="s_product"><option value="intraday">Intraday (flat at close)</option><option value="delivery">Hold overnight</option></select></div>
+            <div class="field"><label>Short selling<small>Paper shorts, always closed the same day</small></label><select id="s_short_mode"><option value="bear_only">Only in bear markets</option><option value="off">Off</option><option value="always">Any market</option></select></div>
+            <div class="field"><label>World news and emotion<small>Reads public news feeds in live sessions</small></label><select id="s_intel_enabled"><option value="on">On</option><option value="off">Off</option></select></div>
             <div class="field"><label>Max open positions</label><input id="s_max_positions" type="number" min="1"></div>
             <div class="field"><label>Max per stock<small>% of equity</small></label><input id="s_max_position_pct" type="number" min="1" max="100"></div>
             <div class="field"><label>Daily loss stop<small>% loss that closes everything for the day</small></label><input id="s_max_daily_loss_pct" type="number" step="0.5" min="0.5"></div>

@@ -50,6 +50,18 @@ PRESETS = [
         "persona": "Follow the broad market. Trade the index ETF and mega caps only in the direction of the index "
                    "trend; stay flat on choppy, range-bound days.",
     },
+    {
+        "key": "bear", "name": "Bear Hunter", "icon": "chart.down", "profile": "balanced", "decision_minutes": 10,
+        "persona": "Short seller for falling markets. Only SHORT when regime.shorts_allowed is true: breakdowns below the "
+                   "day's low on volume, failed bounces into VWAP, and the weakest names while the list falls. COVER fast "
+                   "when price regains VWAP or fear looks exhausted. In bull or neutral markets stay in cash.",
+    },
+    {
+        "key": "crowd", "name": "Crowd Reader", "icon": "people", "profile": "balanced", "decision_minutes": 15,
+        "persona": "Trades crowd emotion confirmed by price. Follow a mood while it is building; fade it only when it is "
+                   "extreme (mood under 15 or over 85) and price has already turned. Say which emotion and headlines you "
+                   "used in each reason. No price confirmation means HOLD.",
+    },
 ]
 
 
@@ -149,6 +161,8 @@ class Fleet:
             st["cli_model"] = spec["model"] if brain == "claude-cli" else st.get("cli_model", "")
             if brain == "claude-api" and spec["model"]:
                 st["model"] = spec["model"]
+        if spec.get("short_mode") in ("off", "bear_only", "always"):
+            st["short_mode"] = spec["short_mode"]
         if spec.get("decision_minutes") or (preset and preset.get("decision_minutes")):
             st["decision_minutes"] = max(1, int(spec.get("decision_minutes") or preset["decision_minutes"]))
         mode = "replay" if spec.get("mode") == "replay" else "live"
@@ -365,10 +379,15 @@ class Fleet:
         mv = j.one("SELECT ts, market_view, brain FROM decisions WHERE run_id=? ORDER BY id DESC LIMIT 1", (run_id,))
         s["market_view"] = mv or None
         s["trades_list"] = j.q("SELECT symbol, qty, entry_ts, entry_price, exit_ts, exit_price, net_pnl, charges, "
-                               "exit_reason, hold_minutes, entry_reason FROM trades WHERE run_id=? ORDER BY id DESC LIMIT 200",
+                               "exit_reason, hold_minutes, entry_reason, side FROM trades WHERE run_id=? ORDER BY id DESC LIMIT 200",
                                (run_id,))
         s["fills"] = j.q("SELECT ts, symbol, side, qty, fill_price, trigger FROM orders WHERE run_id=? AND status='filled' "
                          "ORDER BY id DESC LIMIT 300", (run_id,))
+        last = j.one("SELECT ts FROM desk WHERE run_id=? ORDER BY ts DESC LIMIT 1", (run_id,))
+        s["desk"] = {"ts": last["ts"], "steps": j.q("SELECT agent, status, ms, summary FROM desk WHERE run_id=? AND ts=? ORDER BY rowid",
+                                                     (run_id, last["ts"]))} if last else None
+        row = j.one("SELECT payload FROM desk WHERE run_id=? AND agent='Regime Analyst' ORDER BY rowid DESC LIMIT 1", (run_id,))
+        s["regime"] = (json.loads(row["payload"]) or {}).get("regime") if row and row["payload"] else None
         s["equity_curve"] = j.q("SELECT ts, equity FROM equity WHERE run_id=? ORDER BY ts", (run_id,))
         s["log"] = [json.loads(x) for x in list(LOGS.by_agent.get(run_id, []))[-80:]]
         return s

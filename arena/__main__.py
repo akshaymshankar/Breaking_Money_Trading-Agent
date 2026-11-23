@@ -239,6 +239,41 @@ def cmd_check(a, cfg):
     print("\nAll good." if ok else "\nSome checks need attention.")
 
 
+def cmd_intel(a, cfg):
+    """Print what the desk sees right now: news, crowd emotion and market regime."""
+    import json as _json
+
+    from . import marketdata
+    from .agents.desk import market_intel
+    from .agents.regime import assess, shorts_open
+    from .brain import make_brain
+    from .markets import for_region
+
+    cfg = for_region(cfg, a.region or cfg["market"]["region"])
+    region, syms = cfg["market"]["region"], cfg["market"]["watchlist"]
+    info = market_intel(region, syms, make_brain(_brain_cfg(cfg, None)) if a.claude else None)
+    quotes = marketdata.quotes(region, syms)
+    reg = assess({s: {"chg_pct": q["chg_pct"]} for s, q in quotes.items()}, info["gauges"])
+    mode = cfg["strategy"].get("short_mode", "bear_only")
+    if a.json:
+        print(_json.dumps({**info, "regime": reg, "short_mode": mode}, indent=1, default=str, ensure_ascii=True))
+        return
+    m = info["mood"] or {}
+    say = lambda s: print(s.encode(sys.stdout.encoding or "utf-8", "replace").decode(sys.stdout.encoding or "utf-8"))  # noqa: E731
+    say(f"{region} at {info['at']}")
+    say(f"Regime: {reg['label']} (score {reg['score']:+d}): {reg['why']}")
+    say(f"Shorts: {'OPEN' if shorts_open(reg['label'], mode) else 'closed'} (mode {mode})")
+    say(f"Mood:   {m.get('mood', '?')}/100 {m.get('label', '')}, mostly {m.get('dominant', '?')} (read by {m.get('by', '?')})")
+    say(f"Crowd:  {m.get('crowd_read', '')}")
+    if m.get("symbol_tilts"):
+        say("Tilts:  " + ", ".join(f"{k} {v:+.1f}" for k, v in m["symbol_tilts"].items()))
+    for t in info["trace"]:
+        say(f"  [{t['status']}] {t['agent']}: {t['summary']}")
+    say("Headlines (untrusted text):")
+    for h in info["headlines"][:a.headlines]:
+        say(f"  - {h['title']}  [{h['source']}, {h['age_min']}m ago]{' ' + ','.join(h['symbols']) if h['symbols'] else ''}")
+
+
 def cmd_gui(a, cfg):
     from .gui import serve
     serve(a.port, not a.no_open)
@@ -277,6 +312,9 @@ def main(argv=None):
     c.add_argument("--brains", default="rules,claude-api"); c.add_argument("--start"); c.add_argument("--end"); c.add_argument("--days", type=int)
     sub.add_parser("upstox-login", help="get today's Upstox market-data token")
     sub.add_parser("check", help="test safety guard, market data and Claude setup")
+    it = sub.add_parser("intel", help="world news, crowd emotion and market regime right now")
+    it.add_argument("--region", choices=["US", "IN"]); it.add_argument("--claude", action="store_true", help="let Claude read the emotion")
+    it.add_argument("--json", action="store_true"); it.add_argument("--headlines", type=int, default=12)
     g = sub.add_parser("gui", help="open the control panel in your browser")
     g.add_argument("--port", type=int, default=8787); g.add_argument("--no-open", action="store_true")
 
@@ -285,7 +323,7 @@ def main(argv=None):
     install_guards(cfg)
     setup_logging(cfg)
     {"run": cmd_run, "replay": cmd_replay, "demo": cmd_demo, "fetch": cmd_fetch, "report": cmd_report,
-     "status": cmd_status, "compete": cmd_compete, "upstox-login": cmd_upstox_login, "check": cmd_check, "gui": cmd_gui}[a.cmd](a, cfg)
+     "status": cmd_status, "compete": cmd_compete, "upstox-login": cmd_upstox_login, "check": cmd_check, "gui": cmd_gui, "intel": cmd_intel}[a.cmd](a, cfg)
 
 
 if __name__ == "__main__":

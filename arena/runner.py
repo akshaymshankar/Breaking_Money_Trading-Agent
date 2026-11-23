@@ -7,6 +7,8 @@ import time as _time
 from datetime import datetime, timedelta
 
 from . import insights, report
+from .agents import Desk
+from .agents import risk_officer
 from .brain import RulesBrain, make_brain
 from .clock import parse_hhmm
 from .db import Journal
@@ -25,6 +27,7 @@ class Runner:
         self.brain = brain or make_brain(cfg)
         self.fallback = RulesBrain(cfg)
         self.broker = PaperBroker(journal, run_id, cfg)
+        self.desk = Desk(cfg, feed.live, journal, run_id)
         self.universe = list(dict.fromkeys(cfg["market"]["watchlist"]))
         self.holidays = set(cfg["market"].get("holidays", []))
         self.report_path = report_path or cfg["paths"]["report"]
@@ -116,12 +119,12 @@ class Runner:
                 market[s] = snapshot(quotes[s], bars)
         b = self.broker
         positions = [{
-            "symbol": p.symbol, "qty": p.qty, "avg_price": p.avg_price, "ltp": p.last_price,
-            "unrealized_pct": round((p.last_price / p.avg_price - 1) * 100, 2) if p.avg_price else 0,
+            "symbol": p.symbol, "side": p.side, "qty": abs(p.qty), "avg_price": p.avg_price, "ltp": p.last_price,
+            "unrealized_pct": round(p.unrealized_pct, 2),
             "stop": p.stop, "target": p.target,
             "held_minutes": round((now - datetime.fromisoformat(p.opened_at)).total_seconds() / 60),
         } for p in b.positions.values()]
-        recent = self.j.q("SELECT symbol, net_pnl, exit_reason, hold_minutes FROM trades WHERE run_id=? ORDER BY id DESC LIMIT 6", (self.run_id,))
+        recent = self.j.q("SELECT symbol, side, net_pnl, exit_reason, hold_minutes FROM trades WHERE run_id=? ORDER BY id DESC LIMIT 6", (self.run_id,))
         lessons = [n for r in self.j.q("SELECT insights FROM days WHERE run_id=? ORDER BY date DESC LIMIT 3", (self.run_id,))
                    for n in json.loads(r["insights"] or "[]")[:3]]
         return {
@@ -129,7 +132,7 @@ class Runner:
             "time_local": now.strftime("%Y-%m-%d %H:%M ") + self.market.tz_abbr,
             "challenge_day": f"{self.days_done() + 1} of {self.cfg['account']['challenge_days']}",
             "account": {
-                "equity": round(b.equity, 2), "cash": round(b.cash, 2),
+                "equity": round(b.equity, 2), "cash": round(b.cash, 2), "buying_power": round(b.buying_power, 2),
                 "starting_capital": self.cfg["account"]["starting_capital"],
                 "pnl_today": round(b.equity - self.day_start_equity, 2),
                 "pnl_total": round(b.equity - self.cfg["account"]["starting_capital"], 2),
@@ -145,14 +148,23 @@ class Runner:
     def decide_and_execute(self, now: datetime, quotes) -> None:
         ctx = self.build_context(now, quotes)
         brain = self.brain
+        self.phase, self.phase_detail = "deciding", "Desk is reading news, mood and regime"
+        ctx = self.desk.research(ctx, brain)
+        r = ctx["regime"]
+        log.info("Desk: %s market (score %+d)%s%s", r["label"], r["score"],
+                 f", mood {ctx['intel']['mood_label']} {ctx['intel']['mood_0_fear_100_greed']}/100" if ctx.get("intel") else "",
+                 ", shorts open" if r["shorts_allowed"] else "")
         self.phase, self.phase_detail = "deciding", f"Asking {brain.name} for calls"
         log.info("Asking %s for decisions on %d symbols...", brain.name, len(ctx["snapshot"]))
         t0 = _time.time()
         try:
             out = brain.decide(ctx)
             log.info("%s answered in %.0fs: %s", brain.name, _time.time() - t0, (out.get("market_view") or "")[:160])
+            self.desk.note("Strategist", "ok", round((_time.time() - t0) * 1000),
+                           f"{brain.name}: {sum(d.get('action') != 'HOLD' for d in out.get('decisions', []))} trade calls")
         except Exception as e:
             log.warning("%s failed (%s); using rules fallback for this cycle.", brain.name, e)
+            self.desk.note("Strategist", "failed", round((_time.time() - t0) * 1000), f"{brain.name}: {str(e)[:120]}. Rules used instead.")
             brain = self.fallback
             out = brain.decide(ctx)
         self.last_decision_at = now
@@ -165,8 +177,9 @@ class Runner:
         exec_time = self.feed.now()
         fresh = self._quotes(self.universe + list(self.broker.positions)) or quotes
         self.broker.mark(fresh)
-        # Sells first to free cash, then buys by confidence.
-        decs = sorted(out.get("decisions", []), key=lambda d: (d["action"] != "SELL", -float(d.get("confidence", 0))))
+        # Exits first to free cash, then entries by confidence.
+        decs = sorted(out.get("decisions", []), key=lambda d: (d["action"] not in risk_officer.EXITS, -float(d.get("confidence", 0))))
+        n_ok = n_no = 0
         for d in decs:
             sym, act = d.get("symbol"), d.get("action", "HOLD")
             cur = self.j.x(
@@ -176,25 +189,32 @@ class Runner:
                  d.get("stop_loss_pct", 0), d.get("target_pct", 0), d.get("reason", ""), view, brain.name))
             did, msg = cur.lastrowid, "hold"
             q = fresh.get(sym)
-            if act == "BUY":
+            if act in risk_officer.ENTRIES:
+                ok, why = risk_officer.review(d, ctx, self.st, self.market.code)
                 if not q:
                     msg = "rejected: no quote"
-                elif not ctx["entries_allowed"]:
-                    msg = "rejected: entries closed"
-                elif float(d.get("confidence", 0)) < self.st.get("min_confidence", 0):
-                    msg = f"rejected: confidence below {self.st['min_confidence']}"
+                elif ok is None:
+                    msg = f"rejected: {why}"
                 else:
-                    sl = d.get("stop_loss_pct") or self.st["default_stop_loss_pct"]
-                    tg = d.get("target_pct") or self.st["default_target_pct"]
-                    _, msg = self.broker.buy(exec_time, q, float(d.get("allocation_pct", 0)), float(sl), float(tg), d.get("reason", ""), did)
-            elif act == "SELL":
-                if q and sym in self.broker.positions:
-                    _, msg = self.broker.sell(exec_time, q, "ai", d.get("reason", ""), did)
+                    sl = ok.get("stop_loss_pct") or self.st["default_stop_loss_pct"]
+                    tg = ok.get("target_pct") or self.st["default_target_pct"]
+                    enter = self.broker.buy if act == "BUY" else self.broker.short
+                    filled, msg = enter(exec_time, q, float(ok.get("allocation_pct", 0)), float(sl), float(tg), d.get("reason", ""), did)
+                    if filled and why:
+                        msg += f" [{why}]"
+                    n_ok += filled
+                n_no += not msg.startswith(act) or "rejected" in msg
+            elif act in risk_officer.EXITS:
+                p = self.broker.positions.get(sym)
+                if q and p and p.is_short == (act == "COVER"):
+                    _, msg = (self.broker.cover if p.is_short else self.broker.sell)(exec_time, q, "ai", d.get("reason", ""), did)
                 else:
                     msg = "ignored: not held"
             self.j.x("UPDATE decisions SET outcome=? WHERE id=?", (msg, did))
             if act != "HOLD":
                 log.info("[%s] %s %s -> %s", brain.name, act, sym, msg)
+        self.desk.note("Risk Officer", "ok", 0, f"{n_ok} entries approved, {n_no} refused")
+        self.desk.save(now)
 
     # ---- main loop ---------------------------------------------------
     def run(self) -> None:

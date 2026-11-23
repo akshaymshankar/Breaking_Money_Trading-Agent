@@ -80,8 +80,8 @@ def group(trades: list[dict], key) -> dict[str, dict]:
 
 
 def confidence_calibration(j: Journal, run_id: int, day: str | None = None) -> dict:
-    """Did Claude's high-confidence BUYs do better than its low-confidence ones?"""
-    sql = ("SELECT d.confidence c, t.net_pnl p FROM decisions d JOIN orders o ON o.decision_id=d.id AND o.side='BUY' AND o.status='filled' "
+    """Did Claude's high-confidence entries do better than its low-confidence ones?"""
+    sql = ("SELECT d.confidence c, t.net_pnl p FROM decisions d JOIN orders o ON o.decision_id=d.id AND o.side IN ('BUY','SHORT') AND o.status='filled' "
            "JOIN trades t ON t.run_id=d.run_id AND t.symbol=d.symbol AND t.entry_ts=o.ts WHERE d.run_id=?")
     params = [run_id]
     if day:
@@ -161,7 +161,7 @@ def run_insights(j: Journal, run_id: int) -> list[str]:
         who = j.one("SELECT brain FROM runs WHERE id=?", (run_id,))["brain"]
         who = "Claude" if who.startswith("claude") else "The rules baseline"
         out.append(f"{who} reviewed the watchlist {dec['cycles']} times and made {dec['n']} stock-level calls; "
-                   f"{dec['h'] / dec['n'] * 100:.0f}% were HOLD, {dec['n'] - dec['h']} were BUY or SELL.")
+                   f"{dec['h'] / dec['n'] * 100:.0f}% were HOLD, {dec['n'] - dec['h']} were trades.")
     rej = j.one("SELECT COUNT(*) n FROM orders WHERE run_id=? AND status='rejected'", (run_id,))["n"]
     if rej:
         out.append(f"{rej} order(s) were rejected by the engine's risk rules (cash, position limits, timing).")
@@ -176,7 +176,7 @@ Use the numbers given. No hype, no financial advice disclaimers beyond one line 
 
 def ai_review(brain, j: Journal, run_id: int) -> str:
     run = j.one("SELECT * FROM runs WHERE id=?", (run_id,))
-    trades = j.q("SELECT symbol, qty, entry_ts, entry_price, exit_ts, exit_price, net_pnl, exit_reason, hold_minutes, entry_reason FROM trades WHERE run_id=? ORDER BY id", (run_id,))
+    trades = j.q("SELECT symbol, qty, entry_ts, entry_price, exit_ts, exit_price, net_pnl, exit_reason, hold_minutes, entry_reason, side FROM trades WHERE run_id=? ORDER BY id", (run_id,))
     days = j.q("SELECT date, day_no, pnl, trades, wins, losses, charges FROM days WHERE run_id=? ORDER BY date", (run_id,))
     calls = j.q("SELECT ts, symbol, action, confidence, reason, outcome FROM decisions WHERE run_id=? AND action!='HOLD' ORDER BY id DESC LIMIT 60", (run_id,))
     payload = {"starting_capital": run["starting_capital"], "days": days, "trades": trades[-80:],
