@@ -19,9 +19,10 @@ BEAR, BULL = -25, 25
 
 def gauges(region: str) -> dict:
     """Index trend and VIX from daily bars (live sessions only; cached 10 minutes)."""
-    from .. import marketdata
+    from .. import compliance, marketdata
     from ..markets import MARKETS
     mk = MARKETS[region]
+    compliance.refuse_live(mk)
 
     def fetch():
         import yfinance as yf

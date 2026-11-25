@@ -6,7 +6,7 @@ import logging
 import time as _time
 from datetime import datetime, timedelta
 
-from . import insights, report
+from . import compliance, insights, report, skills
 from .agents import Desk
 from .agents import risk_officer
 from .brain import RulesBrain, make_brain
@@ -22,11 +22,15 @@ log = logging.getLogger("arena")
 
 class Runner:
     def __init__(self, cfg: dict, feed: PriceFeed, journal: Journal, run_id: int, brain=None, report_path=None):
+        if feed.live:
+            compliance.refuse_live(market_of(cfg))
         self.cfg, self.feed, self.j, self.run_id = cfg, feed, journal, run_id
         self.st = cfg["strategy"]
         self.brain = brain or make_brain(cfg)
+        self.brain.on_usage = lambda u: journal.add_usage(run_id, u)
         self.fallback = RulesBrain(cfg)
         self.broker = PaperBroker(journal, run_id, cfg)
+        self.cfg.setdefault("skills", list(skills.DEFAULT))
         self.desk = Desk(cfg, feed.live, journal, run_id)
         self.universe = list(dict.fromkeys(cfg["market"]["watchlist"]))
         self.holidays = set(cfg["market"].get("holidays", []))
@@ -152,7 +156,7 @@ class Runner:
         ctx = self.desk.research(ctx, brain)
         r = ctx["regime"]
         log.info("Desk: %s market (score %+d)%s%s", r["label"], r["score"],
-                 f", mood {ctx['intel']['mood_label']} {ctx['intel']['mood_0_fear_100_greed']}/100" if ctx.get("intel") else "",
+                 f", mood {ctx['intel']['mood_label']} {ctx['intel']['mood_0_fear_100_greed']}/100" if "mood_label" in (ctx.get("intel") or {}) else "",
                  ", shorts open" if r["shorts_allowed"] else "")
         self.phase, self.phase_detail = "deciding", f"Asking {brain.name} for calls"
         log.info("Asking %s for decisions on %d symbols...", brain.name, len(ctx["snapshot"]))
@@ -191,6 +195,12 @@ class Runner:
             q = fresh.get(sym)
             if act in risk_officer.ENTRIES:
                 ok, why = risk_officer.review(d, ctx, self.st, self.market.code)
+                if ok is not None and q and self.feed.live and sym not in self.broker.positions:
+                    try:
+                        checked, extra = skills.check_entry(self.cfg, ok, q.ltp, self.broker.equity, exec_time, self.market.code, self.desk.note)
+                    except Exception as e:  # a selected check that breaks must not wave a trade through
+                        checked, extra = None, f"skill checks failed: {str(e)[:100]}"
+                    ok, why = checked, ", ".join(x for x in (why, extra) if x)
                 if not q:
                     msg = "rejected: no quote"
                 elif ok is None:

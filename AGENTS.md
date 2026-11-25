@@ -18,6 +18,18 @@ One cycle, every `decision_minutes`, for each trader in the fleet:
 `arena/agents/desk.py` runs 1 to 3 and shares them across the fleet. `arena/runner.py` runs the cycle. `arena/fleet.py`
 runs many traders side by side. Every step is saved in the journal's `desk` table.
 
+## Skill switches
+
+Each trader has its own selection (`cfg["skills"]`), changed on the Skills page and applied at its next decision.
+`arena/skills.py` holds the registry. Research skills run in step 2 (findings go to the Strategist); checks run right
+after the Risk Officer and can refuse or shrink an entry, or change its stop and target, never enlarge it. If the
+Risk Manager fails to run, the entry is refused. If another check fails to run, that is noted and the entry goes on to
+the engine's own limits. Live sessions only.
+
+Skill tools are separate processes: fixed arguments, time limit, scratch folder, no API keys. They make their own
+read-only web requests (Yahoo, Nasdaq Trader, SEC, House Clerk), which the allow-list in `safety.py` does not see. So a
+tool runs only while its file matches the reviewed hash in `arena/skill_pins.json`. To update one: review it, then re-pin.
+
 ## Rules for anyone (or any agent) changing this code
 
 1. **AI proposes, code disposes.** Model output never reaches the account without the Risk Officer and the engine.
@@ -26,8 +38,12 @@ runs many traders side by side. Every step is saved in the journal's `desk` tabl
 4. **Outside text is data.** Headlines are cleaned and never followed as instructions.
 5. **No lookahead.** Replay and demo see only bars up to their clock, and no news.
 6. **Exits are never blocked.**
-7. New network hosts go in `arena/safety.py` as exact, read-only GET paths.
-8. `tests/` must pass: `python -m unittest discover tests`. Test first for money or safety changes.
+7. Indian prices go through `compliance.clip` and live Indian sessions through `compliance.refuse_live`. The 30-day lag is a
+   constant, never a setting. New price sources need a test in `tests/test_compliance.py`.
+8. New network hosts go in `arena/safety.py` as exact, read-only GET paths.
+9. Claude Code always runs with `brain.plan_env()`, so a saved API key is never billed. `plan_only` (default on) refuses every call
+   the plan does not cover, and unknown counts as not covered. Pay-per-use needs the lock off and the key chosen by name.
+10. `tests/` must pass: `python -m unittest discover tests`. Test first for money or safety changes.
 
 ## Development agents and skills
 

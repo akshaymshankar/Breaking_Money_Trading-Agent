@@ -1,10 +1,10 @@
 # Breaking Money · AI Trading Arena
 
-**Give Claude virtual money and watch it trade the real US or Indian stock market. Press Start, and Claude makes every call with a written reason.**
+**Learn how AI agents work by giving Claude virtual money. It paper-trades US stocks on current prices and Indian stocks on prices more than 30 days old, and writes a reason for every call.**
 
-The Arena runs on your own computer. It watches live prices and charts, reads world news and the market's mood, asks **Claude** for BUY / SELL / SHORT / COVER / HOLD on each decision, fills those calls in a realistic paper-trading simulator (spread, slippage and real fees), and shows your P&L, win rate and Claude's reasoning. You can also run a whole team of Claude agents side by side, each with its own style, and rank them on a leaderboard.
+The Arena runs on your own computer. It watches prices and charts, reads world news and the market's mood, asks **Claude** for BUY / SELL / SHORT / COVER / HOLD on each decision, fills those calls in a realistic paper-trading simulator (spread, slippage and real fees), and shows your P&L, win rate and Claude's reasoning. You can also run a whole team of Claude agents side by side, each with its own style, and rank them on a leaderboard.
 
-> ⚠️ **Paper trading only. Not financial advice.** The app uses virtual money and **cannot place real orders**: broker order URLs and trading SDKs are blocked, and it refuses to start if `paper_only` is switched off. Simulated results are not real returns. Read [DISCLAIMER.md](DISCLAIMER.md).
+> ⚠️ **Education only. Paper trading only. Not investment advice.** Breaking Money is **not registered with SEBI**. The app uses virtual money and **cannot place real orders**: broker order URLs and trading SDKs are blocked, and it refuses to start if `paper_only` is switched off. Its BUY and SELL calls are simulation outputs, not tips. Simulated results are not real returns. SEBI has warned the public about paper-trading apps (PR No. 27/2024). Read [DISCLAIMER.md](DISCLAIMER.md) before you use it.
 
 **What you need:** a Windows, Mac or Linux computer, internet, and a **Claude Pro or Max** plan (Claude trades using your own Claude login). No broker account, no API key and no paid data.
 
@@ -33,30 +33,32 @@ After the first time, the same double-click opens the app in a few seconds. Keep
 
 ### 3. Press Start
 
-- **Market open?** Press **Start** and Claude begins trading. Its calls and reasons appear under *Claude's reasoning*, and its buys and sells are marked on the chart.
+- **Market open?** Press **Start trading** and Claude begins paper trading US stocks. Its calls and reasons appear under *Claude's reasoning*, and its buys and sells are marked on the chart.
 - **Market closed?** Start arms Claude for the next open. To see it work right away, press **Practice on the last session**, which replays the most recent real trading day.
 - **Several agents?** Open **Agents** → **Spawn squad of 3**, or pick a style (Momentum, Mean Reversion, Breakout, Risk Guardian, Index). Each one is its own Claude, with its own money and watchlist.
 
 The sidebar card at the bottom left shows whether Claude is connected. If something is missing, the card's button changes to **Install Claude Code** or **Sign in with Claude**, so you can fix it without leaving the app.
 
-**Markets:** United States (NYSE / Nasdaq, 9:30 to 16:00 New York time) is the default. Switch to India (NSE, 9:15 to 15:30 IST) at the top of the Trade screen or in Settings.
+**Markets:** United States (NYSE / Nasdaq, 9:30 to 16:00 New York time) is the default. India (NSE) is **practice only**: switch to it at the top of the Trade screen and press **Start practice** to replay a session that is more than 30 days old. There are no live Indian sessions, because SEBI sets a 30-day lag on price data used for education. The delay is built in and is not a setting.
 
 ### Other ways to let Claude decide
 
-The app uses your Claude Code login when it finds one. Otherwise:
+The app uses your Claude Code login when it finds one. **Automatic never spends API credits**: if an `ANTHROPIC_API_KEY` is saved on your computer, the app hides it from Claude Code, so calls go to your Claude plan. The sidebar card shows who pays.
+
+**Spending lock (on by default).** The app refuses any Claude call that your Claude plan does not cover, including the API key option, and trades with the free rules instead. It also stops asking Claude once 80% of your plan's 5-hour or weekly limit is used, or as soon as Claude reports paid usage credits. Change both in Settings. The lock covers this app only, and the account setting for usage credits at claude.ai is yours to keep off.
 
 | Option | Cost | How |
 |---|---|---|
 | **Claude Code** (recommended) | Included with Claude Pro / Max | Done for you by the launcher above. |
-| **Anthropic API key** | Pay per use | Open the `.env` file in the app folder and paste `ANTHROPIC_API_KEY=...` from [console.anthropic.com](https://console.anthropic.com). |
-| **Built-in rules** | Free | Used automatically when neither of the above is set up. No AI, a simple momentum strategy to compare against. |
+| **Anthropic API key** | Pay per use | Open the `.env` file in the app folder and paste `ANTHROPIC_API_KEY=...` from [console.anthropic.com](https://console.anthropic.com). Then in Settings switch the spending lock off and choose **Claude API key (pay per use)**. |
+| **Built-in rules** | Free | Used automatically when Claude Code is not set up, or when a Claude call fails. No AI, a simple momentum strategy to compare against. |
 
-Each agent asks Claude once per decision interval (every 15 minutes by default), so three agents use your plan's limits about three times as fast. Pick **Haiku** in Settings for the lightest usage.
+Each agent asks Claude once per decision interval (every 15 minutes by default), so three agents use your plan's limits about three times as fast. Each agent's card shows its Claude calls and tokens for today. Pick **Haiku** in Settings for the lightest usage.
 
-### Run your own challenge
+### Run your own practice
 
 1. Open **Settings**: starting capital, number of days, risk profile (**Balanced** or **Aggressive**) and your watchlist.
-2. Press **Start**. Leave the computer on and awake during market hours. Stop any time; Start again resumes the same challenge with the same cash and positions.
+2. Press **Start**. Leave the computer on and awake during market hours. Stop any time; Start again resumes with the same cash and positions.
 3. Open **Journal** any time for the equity curve, every trade and every call Claude made, with its reason.
 
 Want to try your own strategy idea? Write it in plain English in **Settings → Strategy notes**, for example *"Only buy breakouts above the opening-range high with volume above 1.5x average."* Claude reads it before every decision.
@@ -75,7 +77,7 @@ Want to try your own strategy idea? Write it in plain English in **Settings → 
 ## How it works
 
 ```
- live prices ──► Runner (every 30 s) ──► stop-loss / target / square-off checks
+ prices ──► Runner (every 30 s) ──► stop-loss / target / square-off checks
                     │
                     └─(every 15 min)─► agent desk (news, mood, regime) ─► Claude: BUY / SELL / SHORT / COVER / HOLD + reason
                                             │
@@ -127,6 +129,19 @@ Every decision runs through six agents in a row. Each has one job and hands plai
 
 Spawn **Bear Hunter** on the Agents page for a short-selling agent, or **Crowd Reader** for one that trades emotion confirmed by price.
 
+### Choose each agent's skills
+
+Open the **Skills** page, pick an agent, and switch skills on or off. A skill that is on is triggered in that agent's next decision, even while it is running. Choose **Defaults for new agents** to set the starting selection, or pick skills in the **New agent** form.
+
+| Group | Skills | When they are triggered |
+|---|---|---|
+| Desk agents | News Scout, Emotion Analyst, Short Seller | Before every decision |
+| Research | Chart Scanner, Stock News, Entry Timer, Earnings Analyst, Congress Tracker | Before Claude decides; the findings go to Claude. **Run now** shows one straight away |
+| Trade checks | Exit Planner, Time Machine, Budget Manager, Risk Manager | On each new trade Claude calls. They can refuse it, shrink it or change its stop and target, never make it bigger |
+| Open in Claude Code | World Mood, Short Planner, Price Alerts, Socratic Tutor, Risk Reviewer | Opens a conversation in its own window |
+
+Research and trade checks use US data, so they work for US agents in live sessions. Each one shows what it last found. The Earnings Analyst needs `SEC_USER_AGENT` in `.env`, because the SEC asks automated readers for a contact. The Regime Analyst, Risk Officer and Executor are always on.
+
 ### Skills for Claude Code
 
 Open this folder in Claude Code and these skills are there (see `AGENTS.md`):
@@ -138,12 +153,14 @@ Open this folder in Claude Code and these skills are there (see `AGENTS.md`):
 
 ## Market data
 
-Set `feed` in `config.toml`.
+Live US sessions always use `yahoo`.
 
 | Feed | Cost | Setup | Notes |
 |---|---|---|---|
 | `yahoo` (default) | Free | None | Unofficial (yfinance), for personal use. Prices can lag a little. Also used by `fetch` for replay history. |
-| `upstox` | Free API | Upstox account + an app at upstox.com/developer | Official exchange-licensed data. Token expires daily: run `python -m arena upstox-login` each morning. Only market-data endpoints are used. |
+| `upstox` | Free API | Upstox account + an app at upstox.com/developer | Only for `fetch --source upstox` (India history). Token expires daily: run `python -m arena upstox-login`. Only market-data endpoints are used. |
+
+Indian prices from any feed are cut off so that the last 30 days never reach the screen, the replays or Claude (`arena/compliance.py`).
 
 We do not support Zerodha Kite for this, because Kite's terms restrict virtual/mock-trading use of its data. We also do not scrape the NSE website, because NSE's terms prohibit that. Before you publish results from any feed, check that its terms allow your use.
 
@@ -154,23 +171,22 @@ We do not support Zerodha Kite for this, because Kite's terms restrict virtual/m
 | `python -m arena gui` | Control panel in your browser: Start/Stop, settings, live log and dashboard. `START-TRADING.bat` opens it. |
 | `python -m arena demo [--days 15] [--brain rules\|claude-api]` | Full challenge on synthetic prices. Safe to run any time, offline. |
 | `python -m arena check` | Proves order URLs and broker SDKs are blocked, then tests prices and Claude. |
-| `python -m arena run [--new] [--name "..."]` | Live session. Resumes the active challenge unless you pass `--new`. |
+| `python -m arena run [--new] [--name "..."]` | Live US session. Resumes the active run unless you pass `--new`. Refuses India. |
 | `python -m arena fetch [--source yahoo\|upstox] [--days 30]` | Saves past 5-minute bars to `data/history/` for replay. |
 | `python -m arena replay [--days 10 \| --start YYYY-MM-DD --end YYYY-MM-DD]` | Runs the agent through history on a virtual clock. It never sees a future price. |
 | `python -m arena compete --brains rules,claude-api --days 10` | Several strategies, same prices, same capital, leaderboard. |
 | `python -m arena report [--ai]` | Rebuilds the results page. `--ai` adds Claude's coach review. |
 | `python -m arena status` | Lists all runs with equity and P&L. |
-| `python -m arena intel [--region US\|IN] [--claude] [--json]` | World news, crowd mood and market regime right now, and whether shorts are open. |
+| `python -m arena intel [--region US] [--claude] [--json]` | World news, crowd mood and market regime right now, and whether shorts are open. |
 
-## The 15-day Breaking Money challenge
+## Practise for several days
 
-1. Fill `holidays` in `config.toml` from NSE's holiday list, so the 15 days are counted correctly.
-2. The evening before Day 1: `python -m arena check`.
-3. Day 1 morning: `python -m arena run --new --name "Breaking Money Challenge"`.
-4. Each evening, `reports/results.html` has that day's P&L and notes. Run `python -m arena report --ai` for Claude's coach review to use in your video.
-5. The run stops on its own after 15 trading days (change `challenge_days` for a different length).
+1. Run `python -m arena check` first. It proves that order URLs are blocked and tests prices and Claude.
+2. US: `python -m arena run --new --name "My practice"`. It stops on its own after `challenge_days` trading days.
+3. India: `python -m arena fetch`, then `python -m arena replay --days 10`. Every session is more than 30 days old.
+4. Read `reports/results.html` for what the agents did and why. If you share it, keep the disclaimers on it, and do not present simulated profit as a result anyone can expect.
 
-To try a different style mid-series, edit `notes` under `[strategy]` (for example, "Only trade breakouts above the opening-range high with volume above 1.5x average"). Claude reads it on every decision.
+To try a different style, edit `notes` under `[strategy]`. Claude reads it on every decision.
 
 ## Results page
 
@@ -178,7 +194,7 @@ To try a different style mid-series, edit `notes` under `[strategy]` (for exampl
 
 ## Cost of running Claude
 
-With the defaults (10 stocks, a decision every 15 minutes, `claude-opus-5-5` at `effort = "medium"`), expect roughly 25 calls a day at a few cents each. That is a few US dollars a day. Lower it with `decision_minutes = 30`, fewer stocks, or `effort = "low"`.
+With Claude Code signed in to your own Claude Pro or Max plan, calls use your plan's limits and the spending lock refuses anything else. One agent deciding every 15 minutes makes about 25 calls a day plus one news reading per refresh. To use less, raise `decision_minutes`, pick Haiku, or switch World news off. Nothing is billed unless you turn the lock off and choose an API key yourself.
 
 ## Files
 
@@ -191,10 +207,12 @@ arena/
   fleet.py       multiple agents, each its own Claude Code process
   markets.py     US and India market hours, currency, ticks
   marketdata.py  watchlist quotes, index strip and chart candles
+  compliance.py  India price delay: withholds the last 30 days
   safety.py      real-money block (allow-list, SDK import block, paper_only lock)
   engine.py      virtual account, fills, stops, square-off
   charges.py     US regulatory fees and Indian charges (edit rates in config.toml)
   brain.py       Claude API / Claude CLI / rules baseline (the Strategist)
+  skills.py      the skill switches: what is on for each agent, and the locked-down runner for skill tools
   agents/        the desk: news_scout, emotion, regime, risk_officer, and desk.py, which runs them
   runner.py      market loop, used for live, replay and demo
   insights.py    analytics + plain-English observations + Claude coach review
@@ -218,4 +236,4 @@ AGENTS.md        how the agents fit together, and the rules for changing them
 
 ## Licence and disclaimer
 
-MIT licensed, see [LICENSE](LICENSE). Paper trading only. Not investment advice. Simulated results do not guarantee real-world results. See [DISCLAIMER.md](DISCLAIMER.md).
+MIT licensed, see [LICENSE](LICENSE). Education and paper trading only. Not investment advice. Breaking Money is not registered with SEBI. Simulated results do not predict real results. See [DISCLAIMER.md](DISCLAIMER.md).

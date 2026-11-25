@@ -69,9 +69,10 @@ class Safety(unittest.TestCase):
                 safety.check_url(m, url)
 
     def test_market_data_allowed(self):
-        safety.check_url("GET", "https://api.upstox.com/v2/market-quote/quotes?instrument_key=NSE_EQ%7CINE002A01018")
-        safety.check_url("GET", "https://api.upstox.com/v3/historical-candle/intraday/NSE_EQ%7CX/minutes/1")
+        safety.check_url("GET", "https://api.upstox.com/v3/historical-candle/NSE_EQ%7CINE002A01018/minutes/1/2026-10-06")
         safety.check_url("GET", "https://assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz")
+        with self.assertRaises(safety.RealMoneyBlocked):  # live Indian quotes are not used any more
+            safety.check_url("GET", "https://api.upstox.com/v2/market-quote/quotes?instrument_key=NSE_EQ%7CINE002A01018")
 
     def test_broker_sdk_import_blocked(self):
         safety.install_guards()
@@ -247,11 +248,6 @@ class Adapters(unittest.TestCase):
         class FakeHTTP:
             def get(self, url, **kw):
                 safety.check_url("GET", url)
-                if "market-quote/quotes" in url:
-                    return Resp({"status": "success", "data": {"NSE_EQ:RELIANCE": {
-                        "ohlc": {"open": 1440, "high": 1460, "low": 1435, "close": 1450},
-                        "last_price": 1452.5, "volume": 3000000, "net_change": 12.5,
-                        "instrument_token": "NSE_EQ|INE002A01018"}}})
                 return Resp({"data": {"candles": [["2026-10-06T09:20:00+05:30", 1, 2, 0.5, 1.5, 100, 0],
                                                   ["2026-10-06T09:15:00+05:30", 1, 2, 0.5, 1.2, 100, 0]]}})
 
@@ -260,9 +256,6 @@ class Adapters(unittest.TestCase):
             {"segment": "NSE_EQ", "instrument_type": "EQ", "trading_symbol": "RELIANCE", "instrument_key": "NSE_EQ|INE002A01018"}]))
         f = UpstoxFeed(access_token="x", cache_dir=tmp)
         f.http = FakeHTTP()
-        q_ = f.quotes(["RELIANCE"])["RELIANCE"]
-        self.assertEqual(q_.ltp, 1452.5)
-        self.assertEqual(q_.prev_close, 1440.0)
         bars = f.minute_bars("RELIANCE", 1)
         self.assertTrue(bars.index.is_monotonic_increasing)
         self.assertEqual(float(bars["close"].iloc[-1]), 1.5)

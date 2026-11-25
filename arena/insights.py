@@ -171,11 +171,14 @@ def run_insights(j: Journal, run_id: int) -> list[str]:
 AI_SYSTEM = """You are a trading coach reviewing a PAPER-TRADING run of an AI agent on stocks for a YouTube/Instagram
 series called Breaking Money. Write a punchy, honest review in Markdown with these sections:
 ## Verdict (2 sentences)  ## What worked  ## What hurt  ## Patterns in the AI's decisions  ## Changes for tomorrow (3 concrete rule changes)
-Use the numbers given. No hype, no financial advice disclaimers beyond one line at the end saying it is a simulation."""
+Use the numbers given. No hype. Never recommend a security or suggest anyone can earn these results. End with one line: simulation with virtual
+money, education only, not investment advice."""
 
 
 def ai_review(brain, j: Journal, run_id: int) -> str:
+    from . import compliance
     run = j.one("SELECT * FROM runs WHERE id=?", (run_id,))
+    compliance.refuse_recent(j, run)
     trades = j.q("SELECT symbol, qty, entry_ts, entry_price, exit_ts, exit_price, net_pnl, exit_reason, hold_minutes, entry_reason, side FROM trades WHERE run_id=? ORDER BY id", (run_id,))
     days = j.q("SELECT date, day_no, pnl, trades, wins, losses, charges FROM days WHERE run_id=? ORDER BY date", (run_id,))
     calls = j.q("SELECT ts, symbol, action, confidence, reason, outcome FROM decisions WHERE run_id=? AND action!='HOLD' ORDER BY id DESC LIMIT 60", (run_id,))

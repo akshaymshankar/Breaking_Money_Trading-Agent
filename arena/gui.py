@@ -18,7 +18,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import marketdata
+from . import compliance, marketdata, skills
+from .brain import plan_limits
 from .config import ROOT, load_config
 from .fleet import LOGS, PRESETS, Fleet
 from .markets import MARKETS
@@ -40,7 +41,9 @@ class Controller:
     def _claude_info(self, ping: bool = False) -> dict:
         from .brain import claude_status
         with self.claude_lock:
-            st = claude_status(run_ping=ping, model=load_config(self.config_path)["strategy"].get("cli_model", ""))
+            cs = load_config(self.config_path)["strategy"]
+            st = claude_status(run_ping=ping, model=cs.get("cli_model", ""), brain=cs["brain"],
+                               plan_only=cs.get("plan_only", True), max_plan_used_pct=cs.get("max_plan_used_pct", 80))
             if not ping and "ok" in self.claude:
                 st.update({k: self.claude[k] for k in ("ok", "reply", "error", "seconds", "at") if k in self.claude})
             if ping:
@@ -58,6 +61,10 @@ class Controller:
     # ---- trading -----------------------------------------------------
     def start(self, region: str | None) -> dict:
         region = (region or load_config(self.config_path)["market"]["region"]).upper()
+        if compliance.delayed(region):  # India has no live sessions: Start replays an older one
+            rid = self.fleet.spawn({"region": region, "name": f"Claude · Practice {region}", "mode": "replay", "replay_days": 1,
+                                    "persona": ""}, start=False)
+            return {"msg": self.fleet.start(rid), "id": rid}
         rid = self.fleet.primary(region)
         msg = self.fleet.start(rid)
         return {"msg": msg, "id": rid}
@@ -108,13 +115,17 @@ class Controller:
                 j = Journal(self.fleet.db_path)
                 run = j.one("SELECT * FROM runs WHERE id=?", (rid,))
                 cfg = json.loads(run["config_json"])
+                base = load_config(self.config_path)["strategy"]
+                cfg["strategy"].update(plan_only=base.get("plan_only", True), max_plan_used_pct=base.get("max_plan_used_pct", 80))
                 if cfg["strategy"]["brain"] == "rules":
                     cfg = self.fleet.base_cfg()
                 if cfg["strategy"]["brain"] == "rules":
                     log.info("The coach review needs Claude (Claude Code login or API key).")
                     return
                 log.info("Asking Claude for a coach review of '%s'...", run["name"])
-                ai_review(make_brain(cfg), j, rid)
+                brain = make_brain(cfg)
+                brain.on_usage = lambda u: j.add_usage(rid, u)
+                ai_review(brain, j, rid)
                 write(j, rid, self.report_path(rid), live=False)
                 log.info("Coach review added to the report.")
             except Exception:
@@ -144,7 +155,10 @@ class Controller:
             now = mk.now()
             markets[code] = {
                 "code": code, "name": mk.name, "exchange": mk.exchange, "currency": mk.currency, "symbol": mk.symbol,
-                "locale": mk.locale, "tz": mk.tz_abbr, "open": mk.is_open(now, hol), "time": now.strftime("%H:%M:%S"),
+                "locale": mk.locale, "tz": mk.tz_abbr, "time": now.strftime("%H:%M:%S"),
+                "open": mk.is_open(now, hol) and not compliance.delayed(mk),
+                "delayed": compliance.delayed(mk), "delay_days": compliance.INDIA_LAG_DAYS,
+                "prices_to": f"{compliance.last_day(mk):%d %b %Y}" if compliance.delayed(mk) else "",
                 "next_open": mk.next_open(now, hol).strftime("%a %d %b, %H:%M"),
                 "next_open_iso": mk.next_open(now, hol).isoformat(),
                 "session": f"{mk.open:%H:%M}–{mk.close:%H:%M}",
@@ -154,18 +168,20 @@ class Controller:
         return {
             "markets": markets,
             "region": cfg["market"]["region"],
-            "claude": self.claude,
+            "claude": {**self.claude, "limits": plan_limits()},
             "brain_setting": st["brain"],
             "side_task": self.side_task,
             "agents": self.fleet.summaries(),
             "running": self.fleet.running,
             "presets": PRESETS,
+            "skill_choices": [{"key": s["key"], "name": s["name"], "kind": s["kind"], "requires": s.get("requires", ""),
+                               "markets": s.get("markets", "")} for s in skills.REGISTRY if s["kind"] != "manual"],
+            "default_skills": skills.selected(cfg),
             "log": [json.loads(x) for x in list(LOGS.all)[-150:]],
             "settings": {
                 "region": cfg["market"]["region"],
                 "starting_capital": cfg["account"]["starting_capital"],
                 "challenge_days": cfg["account"]["challenge_days"],
-                "feed": cfg["market"].get("feed_in", "yahoo"),
                 "watchlist_us": ", ".join(cfg["market"].get("watchlist_us") or MARKETS["US"].watchlist),
                 "watchlist_in": ", ".join(cfg["market"].get("watchlist_in") or MARKETS["IN"].watchlist),
                 "brain": st["brain"], "cli_model": st.get("cli_model", ""), "model": st.get("model", ""),
@@ -177,9 +193,38 @@ class Controller:
                 "max_daily_loss_pct": raw["strategy"]["max_daily_loss_pct"],
                 "notes": st.get("notes", ""),
                 "short_mode": st.get("short_mode", "bear_only"),
+                "plan_only": "on" if st.get("plan_only", True) else "off",
+                "max_plan_used_pct": st.get("max_plan_used_pct", 80),
                 "intel_enabled": "on" if cfg.get("intel", {}).get("enabled", True) else "off",
             },
         }
+
+    # ---- skills ------------------------------------------------------
+    def default_skills(self) -> list[str]:
+        return skills.selected(load_config(self.config_path))
+
+    def skills(self, rid: int | None, region: str) -> dict:
+        if rid:
+            return self.fleet.skills_of(rid)
+        return skills.listing({"skills": self.default_skills()}, region if region in MARKETS else "US")
+
+    def set_skill(self, rid: int | None, key: str, on: bool) -> dict:
+        if rid:
+            return {"msg": "ok", "selected": self.fleet.set_skill(rid, key, on)}
+        new = skills.toggle(self.default_skills(), key, on)
+        text = self.config_path.read_text(encoding="utf-8-sig")
+        if not re.search(r"(?m)^\s*\[skills\]", text):
+            text = text.rstrip("\n") + "\n\n[skills]\n"
+        self.config_path.write_text(set_toml(text, "skills", "enabled", new), encoding="utf-8")
+        return {"msg": "ok", "selected": new}
+
+    def run_skill(self, key: str, region: str) -> dict:
+        """The Run now button. Research skills only: it reads, it never trades."""
+        if key not in skills.RESEARCH:
+            raise ValueError("This one runs inside an agent's decision.")
+        syms = load_config(self.config_path)["market"].get(f"watchlist_{region.lower()}") or list(MARKETS[region].watchlist)
+        _, summary = skills.research_one(key, syms, region)
+        return {"msg": "ok", "summary": summary}
 
     def intel(self, region: str) -> dict:
         """What the desk knows about this market. Uses the cached reading (never asks Claude on its own)."""
@@ -188,6 +233,8 @@ class Controller:
         cfg = load_config(self.config_path)
         if region not in MARKETS:
             raise ValueError("unknown market")
+        if compliance.delayed(region):
+            return {"enabled": False, "why": compliance.NOTE}
         if not cfg.get("intel", {}).get("enabled", True):
             return {"enabled": False}
         syms = cfg["market"].get(f"watchlist_{region.lower()}") or list(MARKETS[region].watchlist)
@@ -210,7 +257,6 @@ class Controller:
             ("market", "region"): "IN" if s.get("region") == "IN" else "US",
             ("account", "starting_capital"): int(float(s["starting_capital"])),
             ("account", "challenge_days"): max(1, int(s["challenge_days"])),
-            ("market", "feed"): s["feed"] if s.get("feed") in ("yahoo", "upstox") else "yahoo",
             ("market", "watchlist_us"): wl(s.get("watchlist_us")) or list(MARKETS["US"].watchlist),
             ("market", "watchlist"): wl(s.get("watchlist_in")) or list(MARKETS["IN"].watchlist),
             ("strategy", "brain"): s["brain"] if s.get("brain") in ("auto", "claude-cli", "claude-api", "rules") else "auto",
@@ -223,6 +269,8 @@ class Controller:
             ("strategy", "max_daily_loss_pct"): float(s["max_daily_loss_pct"]),
             ("strategy", "short_mode"): s["short_mode"] if s.get("short_mode") in ("off", "bear_only", "always") else "bear_only",
             ("intel", "enabled"): s.get("intel_enabled") != "off",
+            ("strategy", "plan_only"): s.get("plan_only") != "off",
+            ("strategy", "max_plan_used_pct"): min(100, max(1, int(float(s.get("max_plan_used_pct") or 80)))),
             ("strategy", "notes"): str(s.get("notes", "")).replace("\n", " "),
         }
         for (section, key), val in updates.items():
@@ -230,6 +278,7 @@ class Controller:
         self.config_path.write_text(text, encoding="utf-8")
         load_config(self.config_path)  # validate
         log.info("Settings saved.")
+        threading.Thread(target=self._claude_info, daemon=True).start()  # who pays may have changed
         return "ok"
 
 
@@ -307,6 +356,8 @@ def make_handler(ctl: Controller):
                     return self._json({"quotes": marketdata.quotes(region, syms), "indices": marketdata.indices(region)})
                 if path == "/api/intel":
                     return self._json(ctl.intel(qs.get("region", "US").upper()))
+                if path == "/api/skills":
+                    return self._json(ctl.skills(int(qs["id"]) if qs.get("id") else None, qs.get("region", "US").upper()))
                 if path == "/api/candles":
                     region = qs.get("region", "US").upper()
                     sym = qs["symbol"].upper()
@@ -319,13 +370,24 @@ def make_handler(ctl: Controller):
                     if not f.exists():
                         return self._send(200, EMPTY, "text/html")
                     html = re.sub(r'<meta http-equiv="refresh"[^>]*>', "", f.read_text(encoding="utf-8"))
+                    if path == "/report" and "₹" in html and "not registered with SEBI" not in html:
+                        return self._send(200, EMPTY, "text/html")  # made before the India price delay existed
                     return self._send(200, html, "text/html")
             except Exception as e:
                 log.warning("GET %s failed: %s", path, e)
                 return self._json({"error": str(e)}, 500)
             self._send(404, "{}")
 
+        def _local(self) -> bool:
+            """Only this app's own page may change things: another website open in the browser may not."""
+            names = {"127.0.0.1", "localhost"}
+            host = (self.headers.get("Host") or "").rsplit(":", 1)[0]
+            origin = self.headers.get("Origin")
+            return host in names and (not origin or (urlparse(origin).hostname in names and urlparse(origin).netloc == self.headers.get("Host")))
+
         def do_POST(self):
+            if not self._local():
+                return self._json({"msg": "Refused: not this app's page."}, 403)
             n = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(n) or b"{}")
             path = urlparse(self.path).path
@@ -350,6 +412,12 @@ def make_handler(ctl: Controller):
                     return self._json({"msg": ctl.fleet.stop(int(body["id"]))})
                 if path == "/api/agents/remove":
                     return self._json({"msg": ctl.fleet.remove(int(body["id"]))})
+                if path == "/api/skills":
+                    return self._json(ctl.set_skill(int(body["id"]) if body.get("id") else None, str(body["key"]), body.get("on") is True))
+                if path == "/api/skills/run":
+                    return self._json(ctl.run_skill(str(body["key"]), "IN" if body.get("region") == "IN" else "US"))
+                if path == "/api/skills/open":
+                    return self._json({"msg": skills.open_in_claude(str(body["key"]))})
                 if path == "/api/claude/check":
                     return self._json(ctl.check_claude())
                 if path == "/api/claude/refresh":
@@ -371,12 +439,12 @@ def make_handler(ctl: Controller):
     return H
 
 
-def serve(port: int = 8787, open_browser: bool = True) -> None:
+def serve(port: int = 8787, open_browser: bool = True, config_path=None) -> None:
     LOGS.setLevel(logging.INFO)
     logging.getLogger().addHandler(LOGS)
     mimetypes.add_type("text/javascript", ".js")
     mimetypes.add_type("text/css", ".css")
-    ctl = Controller()
+    ctl = Controller(config_path)
 
     class Server(ThreadingHTTPServer):
         # On Windows SO_REUSEADDR lets a second process bind a port that is already in use,

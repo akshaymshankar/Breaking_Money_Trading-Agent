@@ -7,7 +7,7 @@ description: >-
   when the user says "find me a short", "should we short", "what is weak
   today", "bear market strategy", "plan a short on TSLA", "when do we cover",
   or asks why a SHORT was refused. Paper trading only; not financial advice.
-argument-hint: "[US|IN] [tickers]"
+argument-hint: "[US tickers]"
 ---
 
 # short-seller

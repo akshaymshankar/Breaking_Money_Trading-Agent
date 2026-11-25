@@ -114,9 +114,20 @@ def find_claude() -> str | None:
     return None
 
 
+# Claude Code would bill these instead of the Claude plan (same list as arena/brain.py).
+PAID_ENV = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_PROFILE", "ANTHROPIC_FEDERATION_RULE_ID",
+            "ANTHROPIC_IDENTITY_TOKEN", "ANTHROPIC_IDENTITY_TOKEN_FILE", "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_CUSTOM_HEADERS", "CLAUDE_CODE_USE_BEDROCK",
+            "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY")
+
+
+def plan_env() -> dict:
+    return {k: v for k, v in os.environ.items() if k.upper() not in PAID_ENV}
+
+
 def logged_in(exe: str) -> bool | None:
     try:
-        r = subprocess.run([exe, "auth", "status", "--json"], capture_output=True, text=True, timeout=30)
+        r = subprocess.run([exe, "auth", "status", "--json"], capture_output=True, text=True, timeout=30, env=plan_env())
         return bool(json.loads(r.stdout or "{}").get("loggedIn"))
     except Exception:
         return None
@@ -141,7 +152,7 @@ def setup_claude(auto_yes: bool) -> None:
     if state is False:
         say("Claude Code is installed but not signed in.")
         if ask("Sign in now? A browser window opens for your Claude account.", auto_yes):
-            subprocess.run([exe, "auth", "login"])
+            subprocess.run([exe, "auth", "login"], env=plan_env())
             state = logged_in(exe)
         if state is False:
             say("Not signed in yet. Use 'Sign in with Claude' in the app's sidebar whenever you're ready.")

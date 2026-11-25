@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 data/
+trader/
 reports/
 *.db
 *.log

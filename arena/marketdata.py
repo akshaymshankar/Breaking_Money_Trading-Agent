@@ -10,6 +10,7 @@ import time as _time
 
 import pandas as pd
 
+from . import compliance
 from .markets import MARKETS, Market
 
 NAMES = {
@@ -32,6 +33,16 @@ INTERVALS = {
     "1m": ("1m", "1d", None),
     "5m": ("5m", "5d", None),
     "15m": ("15m", "1mo", None),
+    "1h": ("60m", "6mo", None),
+    "1D": ("1d", "2y", None),
+}
+
+# Indian prices must be more than 30 days old (compliance.py), so India asks for a longer stretch and clips it.
+# Yahoo has no 1-minute bars that old, so 1m shows 5-minute bars there.
+DELAYED_INTERVALS = {
+    "1m": ("5m", "58d", 1),
+    "5m": ("5m", "58d", 5),
+    "15m": ("15m", "58d", None),
     "1h": ("60m", "6mo", None),
     "1D": ("1d", "2y", None),
 }
@@ -73,18 +84,19 @@ def _frame(raw: pd.DataFrame, t: str, many: bool) -> pd.DataFrame | None:
 def quotes(region: str, symbols: list[str], ttl: float = 15) -> dict:
     """Last price, day change, day range and an intraday sparkline for each symbol."""
     mk = MARKETS[region]
-    symbols = [s.strip().upper() for s in symbols if s.strip()]
+    symbols = compliance.allowed([s.strip().upper() for s in symbols if s.strip()], mk)
 
     def fetch():
         import yfinance as yf
         tickers = [ticker(s, mk) for s in symbols]
         if not tickers:
             return {}
-        raw = yf.download(tickers, period="5d", interval="5m", group_by="ticker", auto_adjust=False,
+        late = compliance.delayed(mk)
+        raw = yf.download(tickers, period="58d" if late else "5d", interval="5m", group_by="ticker", auto_adjust=False,
                           progress=False, threads=True, prepost=False)
         # Official closes (the last 5-minute bar misses the closing auction).
         try:
-            daily = yf.download(tickers, period="10d", interval="1d", group_by="ticker", auto_adjust=False,
+            daily = yf.download(tickers, period="60d" if late else "10d", interval="1d", group_by="ticker", auto_adjust=False,
                                 progress=False, threads=True)
         except Exception:
             daily = None
@@ -95,6 +107,10 @@ def quotes(region: str, symbols: list[str], ttl: float = 15) -> dict:
                 continue
             idx = df.index.tz_convert(mk.tz) if df.index.tz is not None else df.index.tz_localize(mk.tz)
             df.index = idx
+            df = compliance.clip(df, mk)
+            if df.empty:
+                continue
+            idx = df.index
             last_day = idx[-1].date()
             day = df[idx.date == last_day]
             prev = df[idx.date < last_day]
@@ -102,11 +118,13 @@ def quotes(region: str, symbols: list[str], ttl: float = 15) -> dict:
             prev_close = float(prev["close"].iloc[-1]) if len(prev) else float(day["open"].iloc[0])
             dd = _frame(daily, t, len(tickers) > 1) if daily is not None and not daily.empty else None
             if dd is not None:
+                dd = compliance.clip(dd, mk)
+            if dd is not None and not dd.empty:
                 ddates = [pd.Timestamp(x).date() for x in dd.index]
                 before = [i for i, x in enumerate(ddates) if x < last_day]
                 if before:
                     prev_close = float(dd["close"].iloc[before[-1]])
-                if ddates[-1] == last_day and not mk.is_open(mk.now(), set()):
+                if ddates[-1] == last_day and (late or not mk.is_open(mk.now(), set())):
                     ltp = float(dd["close"].iloc[-1])  # session over: show the official close
             closes = day["close"].tolist()
             step = max(1, len(closes) // 48)
@@ -131,7 +149,10 @@ def candles(region: str, symbol: str, interval: str = "5m") -> dict:
     """OHLCV bars for the chart. `time` is shifted to exchange-local wall time so the
     chart's axis reads in the exchange's own hours (lightweight-charts shows UTC)."""
     mk = MARKETS[region]
-    yf_int, period, _ = INTERVALS.get(interval, INTERVALS["5m"])
+    if not compliance.allowed([symbol], mk):
+        return {"symbol": symbol, "interval": interval, "bars": []}
+    table = DELAYED_INTERVALS if compliance.delayed(mk) else INTERVALS
+    yf_int, period, keep = table.get(interval, table["5m"])
     ttl = 20 if interval in ("1m", "5m") else 120
 
     def fetch():
@@ -140,7 +161,11 @@ def candles(region: str, symbol: str, interval: str = "5m") -> dict:
         if df is None or df.empty:
             return {"symbol": symbol, "interval": interval, "bars": []}
         df = df.rename(columns=str.lower)
-        idx = df.index.tz_convert(mk.tz) if df.index.tz is not None else df.index.tz_localize(mk.tz)
+        df.index = df.index.tz_convert(mk.tz) if df.index.tz is not None else df.index.tz_localize(mk.tz)
+        df = compliance.clip(df, mk)
+        if keep:
+            df = df[pd.Index(df.index.date).isin(sorted(set(df.index.date))[-keep:])]
+        idx = df.index
         bars = []
         for ts, r in zip(idx, df.itertuples()):
             if pd.isna(r.close):

@@ -6,8 +6,7 @@ description: >-
   Use when the user says "what is the market mood", "scan the world news",
   "how are people feeling", "is this fear or greed", "read the crowd", "what
   is driving emotions today", or wants emotional context before a trade.
-  Works for the US and India. Evidence only, not financial advice.
-argument-hint: "[US|IN]"
+  US market. Evidence only, not financial advice.
 ---
 
 # world-mood
@@ -22,11 +21,11 @@ Run this from the project folder (Windows: `.venv\Scripts\python.exe`, Mac and L
 
 ```bash
 .venv/Scripts/python.exe -m arena intel --region US --headlines 25
-.venv/Scripts/python.exe -m arena intel --region IN --json      # everything, machine readable
+.venv/Scripts/python.exe -m arena intel --region US --json      # everything, machine readable
 ```
 
 It reads BBC World and Business, Al Jazeera, NPR, CNBC, MarketWatch (US),
-Economic Times and Mint (India), Yahoo Finance per stock, the index and VIX.
+Yahoo Finance per stock, the index and VIX.
 `--claude` asks Claude for the emotion reading too; leave it off when you are
 doing the reading yourself.
 

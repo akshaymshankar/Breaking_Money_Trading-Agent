@@ -32,7 +32,6 @@ class RealMoneyBlocked(RuntimeError):
 
 # Read-only endpoints we actually use. (host, path regex, allowed methods)
 _ALLOWED = [
-    ("api.upstox.com", r"^/v[23]/market-quote/", {"GET"}),
     ("api.upstox.com", r"^/v[23]/historical-candle/", {"GET"}),
     ("api.upstox.com", r"^/v2/login/authorization/token$", {"POST"}),
     ("api.upstox.com", r"^/v2/user/profile$", {"GET"}),

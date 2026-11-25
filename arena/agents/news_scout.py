@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
+from .. import compliance
 from ..markets import MARKETS
 from ..safety import SafeHTTP
 
@@ -100,6 +101,7 @@ def collect(region: str, symbols: list[str], http: SafeHTTP | None = None, limit
     mk = MARKETS[region]
     http = http or SafeHTTP(timeout=8)
     feeds = WORLD + MARKET_FEEDS.get(region, [])
+    symbols = compliance.allowed(symbols, mk)
     if symbols:
         tickers = ",".join(re.sub(r"[^A-Z0-9.^&-]", "", s.upper()) + mk.yahoo_suffix for s in symbols[:12]).replace("&", "%26")
         feeds = feeds + [("Yahoo Finance", "stock", YAHOO.format(tickers=tickers, region="IN" if region == "IN" else "US"))]

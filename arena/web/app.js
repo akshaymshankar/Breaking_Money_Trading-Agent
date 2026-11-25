@@ -16,6 +16,16 @@ const ICONS = {
   shield: '<path d="M12 3l8 4v5c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V7z"/>',
   "chart.down": '<path d="M4 6l6 6 4-4 6 7"/><path d="M15 15h5v-5"/>',
   people: '<circle cx="8" cy="9" r="2.8"/><circle cx="16.5" cy="9.5" r="2.3"/><path d="M3 18.5c.6-2.8 2.6-4.3 5-4.3s4.400 1.500 5 4.300M14.500 14.600c2.600-.4 4.800 1 5.500 3.900"/>',
+  news: '<path d="M4 5h13v14H6a2 2 0 0 1-2-2z"/><path d="M17 9h3v8a2 2 0 0 1-2 2"/><path d="M7.500 9h6M7.500 12.500h6M7.500 16h3.500"/>',
+  heart: '<path d="M12 20s-7.500-4.600-7.500-10A4.200 4.200 0 0 1 12 7.600 4.200 4.200 0 0 1 19.500 10c0 5.400-7.500 10-7.500 10z"/>',
+  scan: '<path d="M4 8V5.500A1.500 1.500 0 0 1 5.500 4H8M16 4h2.500A1.500 1.500 0 0 1 20 5.500V8M20 16v2.500a1.500 1.500 0 0 1-1.500 1.500H16M8 20H5.500A1.500 1.500 0 0 1 4 18.500V16"/><path d="M7.500 13.500l3-3 2.500 2 3.500-4"/>',
+  clock: '<circle cx="12" cy="12" r="8.500"/><path d="M12 7.500V12l3 2"/>',
+  doc: '<path d="M6 3.500h8l4 4v13H6z"/><path d="M9 12h6M9 15.500h6"/>',
+  target: '<circle cx="12" cy="12" r="8.500"/><circle cx="12" cy="12" r="4.500"/><circle cx="12" cy="12" r=".8"/>',
+  history: '<path d="M4 12a8 8 0 1 1 2.500 5.800"/><path d="M4 18.500v-4h4"/><path d="M12 8v4.300l2.800 1.700"/>',
+  wallet: '<rect x="3.500" y="6" width="17" height="13" rx="2.500"/><path d="M3.500 10h17M15.500 14.500h2"/>',
+  bell: '<path d="M6 16.500V11a6 6 0 0 1 12 0v5.500l1.500 1.500h-15z"/><path d="M10 20.500h4"/>',
+  book: '<path d="M4.500 5.500c2.500-1 5-1 7.500.5 2.500-1.500 5-1.500 7.500-.5v13c-2.500-1-5-1-7.500.5-2.500-1.500-5-1.500-7.500-.5z"/><path d="M12 6v13"/>',
   waveform: '<path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 11v2"/>',
   sparkle: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/>',
 };
@@ -34,7 +44,8 @@ const S = {
   quotes: {}, indices: {},
   detail: null, intel: null,
   decFilter: "act", logFilter: "agent",
-  sheetPreset: null,
+  sheetPreset: null, sheetSkills: [],
+  skillAgent: null, skills: null, skillNote: {},
 };
 
 /* ---------- formatting ---------- */
@@ -122,17 +133,19 @@ function renderChrome() {
   const m = sv.markets[S.region];
   document.querySelectorAll("#regionSeg button").forEach((b) => b.classList.toggle("on", b.dataset.r === S.region));
   const pill = $("mktPill");
-  pill.innerHTML = `<span class="dot ${m.open ? "green pulse" : ""}"></span><span>${m.open ? "Market open" : "Closed"} · ${esc(m.time.slice(0, 5))} ${esc(m.tz)}</span>`;
-  pill.title = `${m.exchange} · session ${m.session} ${m.tz}` + (m.open ? "" : ` · opens ${m.next_open}`);
+  pill.innerHTML = m.delayed
+    ? `<span class="dot orange"></span><span>Practice · prices to ${esc(m.prices_to)}</span>`
+    : `<span class="dot ${m.open ? "green pulse" : ""}"></span><span>${m.open ? "Market open" : "Closed"} · ${esc(m.time.slice(0, 5))} ${esc(m.tz)}</span>`;
+  pill.title = m.delayed ? `Indian prices here are more than ${m.delay_days} days old` : `${m.exchange} · session ${m.session} ${m.tz}` + (m.open ? "" : ` · opens ${m.next_open}`);
 
   // Start / Stop button follows the primary agent of this market
-  const p = primaryFor(S.region);
+  const p = m.delayed ? agents().find((a) => a.running && a.region === S.region) : primaryFor(S.region);
   const btn = $("startBtn");
   const running = p && p.running;
   btn.className = "btn lg " + (running ? "danger" : "primary");
   btn.innerHTML = running
     ? '<svg class="i" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor" stroke="none"/></svg><span>Stop</span>'
-    : `<svg class="i" viewBox="0 0 24 24"><path d="M7 5l12 7-12 7z" fill="currentColor" stroke="none"/></svg><span>${p && p.trades ? "Resume trading" : "Start trading"}</span>`;
+    : `<svg class="i" viewBox="0 0 24 24"><path d="M7 5l12 7-12 7z" fill="currentColor" stroke="none"/></svg><span>${m.delayed ? "Start practice" : p && p.trades ? "Resume trading" : "Start trading"}</span>`;
   btn.dataset.running = running ? "1" : "";
   btn.dataset.id = p ? p.id : "";
 
@@ -142,13 +155,20 @@ function renderChrome() {
   let name = "Claude Code", sub = "", dot = "";
   if (!c.checked) { sub = "Checking connection…"; }
   else if (brain === "rules") { name = "Rules strategy"; sub = "No AI · change in Settings"; dot = "orange"; }
-  else if (c.cli && c.logged_in === false && !c.api_key) { name = "Claude Code"; sub = "Installed · not signed in"; dot = "orange"; }
+  else if (brain === "claude-api") { name = "Claude API key"; sub = c.ok === false ? "Test failed" : c.api_key ? "Pay per use" : "No key found"; dot = c.ok === false || !c.api_key ? "red" : "orange"; }
+  else if (c.cli && c.logged_in === false) { name = "Claude Code"; sub = "Installed · not signed in"; dot = "orange"; }
   else if (c.cli) { sub = (c.version || "Installed").replace(" (Claude Code)", "") + (c.ok === true ? " · connected" : c.ok === false ? " · test failed" : " · ready"); dot = c.ok === false ? "red" : "green"; }
-  else if (c.api_key) { name = "Claude API"; sub = c.ok === false ? "Test failed" : "API key found"; dot = c.ok === false ? "red" : "green"; }
   else { name = "Claude not found"; sub = "Install Claude Code to let Claude trade"; dot = "red"; }
   if (c.ok === false && c.error) sub = c.error.slice(0, 80);
+  const pay = $("claudePay");
+  pay.textContent = !c.checked || c.paid_by === "none" ? "" : c.paid_by ? "Paid by: " + c.paid_label : c.cli ? "Paid by: not known" : "";
+  const lim = c.limits || {}, used = [lim.five_hour != null ? `5-hour ${lim.five_hour}%` : "", lim.seven_day != null ? `week ${lim.seven_day}%` : ""].filter(Boolean).join(" · ");
+  if (pay.textContent && c.plan_only) pay.textContent += " · lock on";
+  if (pay.textContent && used) pay.textContent += " · used: " + used;
+  pay.className = c.paid_by === "api" ? "warn" : "";
+  pay.title = c.paid_by === "plan" && c.api_key ? "An API key is saved on this computer. The app ignores it." : "";
   // One button that does whatever is missing: install -> sign in -> test.
-  const mode = !c.checked || brain === "rules" ? "test" : !c.cli && !c.api_key ? "install" : c.cli && c.logged_in === false && !c.api_key ? "login" : "test";
+  const mode = !c.checked || brain === "rules" || brain === "claude-api" ? "test" : !c.cli ? "install" : c.logged_in === false ? "login" : "test";
   const tb = $("claudeTest");
   if (!tb.disabled && tb.dataset.mode !== mode) {
     tb.dataset.mode = mode;
@@ -161,12 +181,13 @@ function renderChrome() {
   const nRun = sv.running.length;
   $("navCount").textContent = nRun; $("navCount").classList.toggle("hidden", !nRun);
 
-  const titles = { trade: "Trade", agents: "Agents", journal: "Journal", settings: "Settings" };
+  const titles = { trade: "Trade", agents: "Agents", skills: "Skills", journal: "Journal", settings: "Settings" };
   $("viewTitle").textContent = titles[S.view];
   const fa = focusAgent();
   const subs = {
     trade: fa ? `${fa.name} · ${m.exchange} · ${phaseInfo(fa).label}` : `${m.exchange} · paper trading with Claude`,
     agents: `${agents().filter((a) => a.status === "active").length} agents · ${nRun} running`,
+    skills: "Switch on what each agent uses when it decides",
     journal: "Every trade and every call, with Claude's reasons",
     settings: "Saved to config.toml",
   };
@@ -209,7 +230,7 @@ function renderQuoteHead() {
   $("qSym").textContent = S.symbol || "—";
   $("qName").textContent = q ? q.name + " · " + mkt(S.region).exchange : mkt(S.region).exchange || "";
   $("qPx").textContent = q ? money(q.ltp, S.region) : "";
-  $("qChg").innerHTML = q ? `<span class="${cls(q.chg)}">${q.chg >= 0 ? "+" : "−"}${price(Math.abs(q.chg), S.region)} (${pct(q.chg_pct)})</span> <span class="muted">today</span>` : "";
+  $("qChg").innerHTML = q ? `<span class="${cls(q.chg)}">${q.chg >= 0 ? "+" : "−"}${price(Math.abs(q.chg), S.region)} (${pct(q.chg_pct)})</span> <span class="muted">${mkt(S.region).delayed ? "on " + esc(q.ts.slice(0, 10)) : "today"}</span>` : "";
   $("qStats").innerHTML = q
     ? [["Open", price(q.open, S.region)], ["High", price(q.high, S.region)], ["Low", price(q.low, S.region)], ["Prev close", price(q.prev_close, S.region)], ["Volume", vol(q.volume)]]
         .map(([k, v]) => `<div>${k}<b>${v}</b></div>`).join("")
@@ -327,6 +348,13 @@ function renderBanner() {
   const show = !m.open;
   $("closedBanner").classList.toggle("hidden", !show);
   if (!show) return;
+  if (m.delayed) {
+    $("cbTitle").textContent = "India is practice only";
+    $("cbText").textContent = `Prices here stop at ${m.prices_to}. Education only: Indian prices in this app are always more than ${m.delay_days} days old.`;
+    $("practiceBtn").textContent = "Practice on an older session";
+    return;
+  }
+  $("practiceBtn").textContent = "Practice on the last session";
   $("cbTitle").textContent = `${m.name} market is closed`;
   $("cbText").textContent = p && p.running
     ? `Claude is armed and starts trading at the open: ${m.next_open} ${m.tz}. Want to see it work now? Replay the last real session.`
@@ -441,6 +469,7 @@ function renderAgents() {
       <p class="persona">${esc(a.persona || (a.primary ? "Main agent behind the Start button. Uses your strategy notes from Settings." : "General-purpose Claude agent. Uses your strategy notes from Settings."))}</p>
       <div class="figs"><div><div class="e num">${money(a.equity, a.region, { dp: 0 })}</div><div class="p num ${cls(a.pnl)}">${money(a.pnl, a.region, { sign: true })} · ${pct(a.pnl_pct)}</div></div>${sparkSVG(a.spark, 120, 40, color)}</div>
       <div class="mini num"><span><b>${a.positions}</b> open</span><span><b>${a.trades}</b> trades</span><span><b>${a.win_rate === null ? "—" : a.win_rate + "%"}</b> win</span><span><b>${a.cycles}</b> calls</span></div>
+      ${a.usage && a.usage.today.calls ? `<div class="detail" title="Saved by this copy of the app. Tokens include cached text.">Claude today: ${a.usage.today.calls} call${a.usage.today.calls > 1 ? "s" : ""} · ${Math.round(a.usage.today.tokens / 1000)}k tokens · ${a.usage.paid_by === "plan" ? "your plan" : a.usage.paid_by === "api" ? '<span class="err">API, pay per use</span>' : "payer not known"}</div>` : ""}
       <div class="detail">${detail}</div>
       <div class="foot">
         ${a.status === "active" ? (a.running ? `<button class="btn sm" data-act="stop" data-id="${a.id}">Stop</button>` : `<button class="btn sm primary" data-act="start" data-id="${a.id}">${a.cycles ? "Resume" : "Start"}</button>`) : ""}
@@ -505,6 +534,57 @@ function renderLog(d) {
   if (atBottom) el.scrollTop = el.scrollHeight;
 }
 
+/* ---------- skills ---------- */
+const SKILL_GROUPS = [
+  ["desk", "Desk agents", "Run before every decision."],
+  ["research", "Research skills", "Their findings go to Claude before it decides. Live US sessions."],
+  ["check", "Trade checks", "Run on each new trade Claude calls. They can shrink or refuse it, never enlarge it. Live US sessions."],
+  ["manual", "Open in Claude Code", "These are conversations, so they open in their own window."],
+];
+function skillRun() { return S.skillAgent === "default" ? null : agentById(S.skillAgent); }
+async function loadSkills() {
+  if (!S.server) return;
+  if (S.skillAgent !== "default" && !agentById(S.skillAgent)) S.skillAgent = (focusAgent() || {}).id || "default";
+  const want = S.skillAgent, a = skillRun();
+  try {
+    const d = await api("/api/skills?" + (a ? "id=" + a.id : "region=" + S.region));
+    if (want === S.skillAgent) { S.skills = d; renderSkills(); }
+  } catch { /* keep last */ }
+}
+function renderSkills() {
+  const list = agents().filter((a) => a.status === "active");
+  const sel = $("skillAgent");
+  const html = list.map((a) => `<option value="${a.id}">${esc(a.name)} · ${a.region}${a.running ? " · running" : ""}</option>`).join("") + '<option value="default">Defaults for new agents</option>';
+  if (document.activeElement !== sel && sel.dataset.html !== html) { sel.innerHTML = html; sel.dataset.html = html; }
+  sel.value = String(S.skillAgent);
+  const d = S.skills, box = $("skillList"), a = skillRun();
+  $("skillHint").textContent = a ? (a.mode === "replay" ? "Replays skip news and research skills, so they can't see the future." : "Changes apply from this agent's next decision.") : "Every new agent starts with these.";
+  if (!d || !d.skills) { box.innerHTML = '<div class="empty">Close the app and start it again to use skills.</div>'; return; }
+  const focused = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.skill : null;
+  box.innerHTML = SKILL_GROUPS.map(([kind, title, sub]) => {
+    const rows = d.skills.filter((x) => x.kind === kind);
+    return `<div class="group-title">${title}</div><div class="group">${rows.map((x) => {
+      const note = S.skillNote[x.key] || (x.last ? { status: x.last.status, text: `${hhmm(x.last.ts)} · ${x.last.summary}` } : null);
+      const state = x.blocked ? { status: "skipped", text: x.blocked } : note;
+      return `<div class="skill ${x.on && !x.blocked ? "on" : ""}"><div class="si">${icon(x.icon)}</div>
+        <div><b id="sk-${x.key}">${esc(x.name)}</b><p>${esc(x.about)}</p>${state ? `<div class="last"><span class="dot ${state.status === "ok" ? "green" : state.status === "failed" ? "red" : "orange"}"></span><span>${esc(state.text)}</span></div>` : ""}</div>
+        <div class="ctl">${kind === "manual" ? `<button class="btn sm" data-open="${x.key}">Open</button>`
+          : `${kind === "research" && !x.blocked ? `<button class="btn sm ghost" data-run="${x.key}">Run now</button>` : ""}<button class="switch" role="switch" aria-checked="${x.on}" aria-labelledby="sk-${x.key}" data-skill="${x.key}" ${x.blocked && !x.on ? "disabled" : ""}></button>`}</div></div>`;
+    }).join("")}</div><p class="group-note">${sub}</p>`;
+  }).join("") + `<div class="group-title">Always on</div><div class="group">${(d.always_on || []).map((x) => `<div class="skill"><div class="si">${icon("shield")}</div><div><b>${esc(x.name)}</b><p>${esc(x.about)}</p></div><span class="tag">Always on</span></div>`).join("")}</div>`;
+  if (focused) { const el = box.querySelector(`[data-skill="${focused}"]`); if (el) el.focus(); }
+}
+async function setSkill(key, on) {
+  const a = skillRun();
+  const r = await api("/api/skills", { id: a ? a.id : null, key, on });
+  if (r.msg !== "ok") { toast(r.msg || "Could not change that skill"); return loadSkills(); }
+  const x = S.skills.skills.find((s) => s.key === key);
+  const extra = S.skills.skills.find((s) => s.key !== key && s.on !== r.selected.includes(s.key) && s.kind !== "manual");
+  S.skills.skills.forEach((s) => { s.on = r.selected.includes(s.key); });
+  renderSkills();
+  toast(`${x.name} is ${on ? "on" : "off"}${extra ? `, and so ${extra.name} is ${extra.on ? "on" : "off"}` : ""}`);
+}
+
 /* ---------- settings ---------- */
 let settingsLoaded = false;
 function fillSettings(force) {
@@ -514,7 +594,7 @@ function fillSettings(force) {
   settingsLoaded = true;
 }
 async function saveSettings() {
-  const keys = ["region", "watchlist_us", "watchlist_in", "feed", "brain", "cli_model", "decision_minutes", "notes", "starting_capital", "challenge_days", "profile", "product", "max_positions", "max_position_pct", "max_daily_loss_pct", "short_mode", "intel_enabled"];
+  const keys = ["region", "watchlist_us", "watchlist_in", "brain", "cli_model", "decision_minutes", "notes", "starting_capital", "challenge_days", "profile", "product", "max_positions", "max_position_pct", "max_daily_loss_pct", "short_mode", "intel_enabled", "plan_only", "max_plan_used_pct"];
   const body = {}; keys.forEach((k) => (body[k] = $("s_" + k).value));
   const r = await api("/api/settings", body);
   toast(r.msg === "ok" ? "Settings saved" : r.msg);
@@ -531,11 +611,28 @@ function openSheet(presetKey) {
   $("f_mode").value = S.server.markets[S.region].open ? "live" : "replay";
   $("f_model").value = S.server.settings.cli_model || "";
   $("f_capital").value = S.server.settings.starting_capital;
+  S.sheetSkills = [...(S.server.default_skills || [])];
+  renderSheetSkills();
   $("f_watchlist").value = "";
   $("f_watchlist").placeholder = (S.server.markets[S.region].watchlist || []).join(", ");
   toggleDays();
   $("sheet").classList.remove("hidden");
   setTimeout(() => $("f_name").focus(), 50);
+}
+function renderSheetSkills() {
+  const all = S.server.skill_choices || [], region = $("f_region").value;
+  $("sheetSkills").innerHTML = all.map((x) => {
+    const off = x.markets && !x.markets.includes(region);
+    return `<button type="button" data-sk="${x.key}" aria-pressed="${S.sheetSkills.includes(x.key)}" class="${S.sheetSkills.includes(x.key) ? "on" : ""}" ${off ? `disabled title="${esc(x.markets)} market only"` : ""}>${esc(x.name)}</button>`;
+  }).join("");
+}
+function toggleSheetSkill(key) {
+  const all = S.server.skill_choices || [], has = S.sheetSkills.includes(key);
+  let s = has ? S.sheetSkills.filter((k) => k !== key) : [...S.sheetSkills, key];
+  const me = all.find((x) => x.key === key);
+  if (!has && me.requires && !s.includes(me.requires)) s.push(me.requires);
+  if (has) s = s.filter((k) => (all.find((x) => x.key === k) || {}).requires !== key);
+  S.sheetSkills = s; renderSheetSkills();
 }
 function fillFromPreset(k) {
   const p = S.server.presets.find((x) => x.key === k);
@@ -543,14 +640,19 @@ function fillFromPreset(k) {
   $("f_persona").value = p ? p.persona : "";
   $("f_minutes").value = p ? p.decision_minutes : S.server.settings.decision_minutes;
 }
-function toggleDays() { $("f_days_wrap").style.visibility = $("f_mode").value === "replay" ? "visible" : "hidden"; }
+function toggleDays() {
+  const late = mkt($("f_region").value).delayed;
+  if (late) $("f_mode").value = "replay";
+  $("f_mode").options[0].disabled = !!late;
+  $("f_days_wrap").style.visibility = $("f_mode").value === "replay" ? "visible" : "hidden";
+}
 function closeSheet() { $("sheet").classList.add("hidden"); }
 async function spawnFromSheet() {
   const btn = $("sheetSpawn"); btn.disabled = true;
   const body = {
     preset: S.sheetPreset, name: $("f_name").value, persona: $("f_persona").value, region: $("f_region").value, mode: $("f_mode").value,
     model: $("f_model").value, decision_minutes: +$("f_minutes").value, capital: +$("f_capital").value, replay_days: +$("f_days").value,
-    watchlist: $("f_watchlist").value,
+    watchlist: $("f_watchlist").value, skills: S.server.skill_choices ? S.sheetSkills : undefined,
   };
   const r = await api("/api/agents", body);
   btn.disabled = false;
@@ -574,7 +676,7 @@ async function onStart() {
     else {
       S.focus = r.id; store.set("focus", r.id);
       const m = S.server.markets[S.region];
-      toast(m.open ? "Claude is trading. First decision in a few seconds." : `Armed. Claude starts at the open: ${m.next_open} ${m.tz}.`);
+      toast(m.delayed ? `Practising on a session up to ${m.prices_to}.` : m.open ? "Claude is trading. First decision in a few seconds." : `Armed. Claude starts at the open: ${m.next_open} ${m.tz}.`);
     }
   }
   await poll();
@@ -584,7 +686,7 @@ async function practice() {
     persona: "", model: S.server.settings.cli_model || "" });
   if (r.msg !== "ok") return toast(r.msg);
   S.focus = r.id; store.set("focus", r.id);
-  toast("Replaying the last real session. Claude decides every " + S.server.settings.decision_minutes + " market minutes.");
+  toast((mkt(S.region).delayed ? "Replaying an older session." : "Replaying the last real session.") + " Claude decides every " + S.server.settings.decision_minutes + " market minutes.");
   await poll();
 }
 async function agentAction(act, id) {
@@ -619,6 +721,7 @@ function setView(v) {
   render();
   if (v === "trade") setTimeout(() => loadChart(true), 30);
   if (v === "journal") renderJournal();
+  if (v === "skills") { S.skillNote = {}; loadSkills(); }
 }
 function setRegion(r) {
   if (r === S.region) return;
@@ -734,8 +837,21 @@ $("sheetPresets").addEventListener("click", (e) => {
   document.querySelectorAll("#sheetPresets button").forEach((x) => x.classList.toggle("on", x === b));
   fillFromPreset(S.sheetPreset);
 });
+$("sheetSkills").addEventListener("click", (e) => { const b = e.target.closest("[data-sk]"); if (b && !b.disabled) toggleSheetSkill(b.dataset.sk); });
+$("skillAgent").addEventListener("change", (e) => { S.skillAgent = e.target.value === "default" ? "default" : +e.target.value; S.skillNote = {}; S.skills = null; e.target.blur(); loadSkills(); });
+$("skillList").addEventListener("click", async (e) => {
+  const sw = e.target.closest("[data-skill]"), run = e.target.closest("[data-run]"), open = e.target.closest("[data-open]");
+  if (sw) { sw.disabled = true; await setSkill(sw.dataset.skill, sw.getAttribute("aria-checked") !== "true"); }
+  if (run) {
+    const k = run.dataset.run; run.disabled = true; run.textContent = "Running…";
+    const a = skillRun(), r = await api("/api/skills/run", { key: k, region: a ? a.region : S.region });
+    S.skillNote[k] = r.msg === "ok" ? { status: "ok", text: "Just now · " + r.summary } : { status: "failed", text: r.msg };
+    renderSkills();
+  }
+  if (open) { open.disabled = true; const r = await api("/api/skills/open", { key: open.dataset.open }); toast(r.msg); open.disabled = false; }
+});
 $("f_mode").addEventListener("change", toggleDays);
-$("f_region").addEventListener("change", () => { $("f_watchlist").placeholder = (S.server.markets[$("f_region").value].watchlist || []).join(", "); });
+$("f_region").addEventListener("change", () => { toggleDays(); renderSheetSkills(); $("f_watchlist").placeholder = (S.server.markets[$("f_region").value].watchlist || []).join(", "); });
 $("sheetClose").addEventListener("click", closeSheet);
 $("sheetCancel").addEventListener("click", closeSheet);
 $("sheet").addEventListener("click", (e) => { if (e.target.id === "sheet") closeSheet(); });
@@ -754,6 +870,7 @@ document.querySelectorAll("#intervalSeg button").forEach((x) => x.classList.togg
   await poll();
   setView(S.view);
   loadQuotes(); loadDetail(); loadIntel(); scheduleChart();
+  setInterval(() => { if (!document.hidden && S.view === "skills") loadSkills(); }, 10000);
   setInterval(() => { if (!document.hidden) loadIntel(); }, 60000);
   setInterval(() => { if (!document.hidden) poll(); }, 2500);
   setInterval(() => { if (!document.hidden) loadDetail(); }, 3500);

@@ -23,6 +23,7 @@
       <nav>
         <button class="nav-item on" data-view="trade"><svg class="i" viewBox="0 0 24 24"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 15l3-4 3 2 5-6"/></svg><span>Trade</span></button>
         <button class="nav-item" data-view="agents"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.2"/><path d="M5.5 19.5c.8-3.2 3.4-5 6.5-5s5.7 1.8 6.5 5"/><circle cx="19" cy="6.5" r="2"/><circle cx="5" cy="6.5" r="2"/></svg><span>Agents</span><span class="count hidden" id="navCount">0</span></button>
+        <button class="nav-item" data-view="skills"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="6.500" rx="3.250"/><circle cx="17.500" cy="8.250" r="1.600"/><rect x="3" y="13.500" width="18" height="6.500" rx="3.250"/><circle cx="6.500" cy="16.750" r="1.600"/></svg><span>Skills</span></button>
         <button class="nav-item" data-view="journal"><svg class="i" viewBox="0 0 24 24"><path d="M6 4h10a2 2 0 0 1 2 2v14H8a2 2 0 0 1-2-2z"/><path d="M6 18a2 2 0 0 1 2-2h10"/><path d="M10 8h5M10 11h4"/></svg><span>Journal</span></button>
         <button class="nav-item" data-view="settings"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg><span>Settings</span></button>
       </nav>
@@ -31,12 +32,12 @@
       <div class="claude-card">
         <div class="row1">
           <div class="claude-mark"><svg class="i" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/></svg></div>
-          <div style="min-width:0"><b id="claudeName">Claude</b><small id="claudeSub">Checking connection…</small></div>
+          <div style="min-width:0"><b id="claudeName">Claude</b><small id="claudeSub">Checking connection…</small><small id="claudePay"></small></div>
           <span class="dot" id="claudeDot" style="margin-left:auto"></span>
         </div>
         <button class="btn sm test" id="claudeTest">Test connection</button>
       </div>
-      <div class="paper-note"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V7z"/></svg>Paper trading · virtual money only</div>
+      <div class="paper-note"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V7z"/></svg><span>Paper trading · virtual money only. Education only, not investment advice. Breaking Money is not registered with SEBI.</span></div>
     </div>
   </aside>
 
@@ -137,6 +138,17 @@
         <div class="card tbl-wrap"><table class="tbl num" id="board"></table></div>
       </section>
 
+      <!-- SKILLS -->
+      <section class="view hidden" id="view-skills">
+        <div class="skills-page">
+          <div class="skills-bar">
+            <div class="agent-picker"><select id="skillAgent" aria-label="Choose which agent's skills to change"></select></div>
+            <p id="skillHint"></p>
+          </div>
+          <div id="skillList"><div class="empty">Loading skills…</div></div>
+        </div>
+      </section>
+
       <!-- JOURNAL -->
       <section class="view hidden" id="view-journal">
         <div class="journal-grid">
@@ -173,12 +185,14 @@
             <div class="field"><label>Default market<small>What the Start button trades</small></label><select id="s_region"><option value="US">United States</option><option value="IN">India</option></select></div>
             <div class="field stack"><label>US watchlist<small>NYSE / Nasdaq tickers, comma separated</small></label><textarea id="s_watchlist_us"></textarea></div>
             <div class="field stack"><label>India watchlist<small>NSE symbols, comma separated</small></label><textarea id="s_watchlist_in"></textarea></div>
-            <div class="field"><label>India price feed</label><select id="s_feed"><option value="yahoo">Yahoo (free)</option><option value="upstox">Upstox</option></select></div>
+            <div class="field"><label>India prices<small>Practice only. Always more than 30 days old; this cannot be changed</small></label><span class="tag">Delayed</span></div>
           </div>
 
           <div class="group-title">Claude</div>
           <div class="group">
-            <div class="field"><label>Who decides</label><select id="s_brain"><option value="auto">Automatic</option><option value="claude-cli">Claude Code (my login)</option><option value="claude-api">Claude API key</option><option value="rules">Rules only (no AI)</option></select></div>
+            <div class="field"><label>Who decides</label><select id="s_brain"><option value="auto">Automatic</option><option value="claude-cli">Claude Code (my Claude plan)</option><option value="claude-api">Claude API key (pay per use)</option><option value="rules">Rules only (no AI)</option></select></div>
+            <div class="field"><label>Spending lock<small>Never use anything outside your Claude plan</small></label><select id="s_plan_only"><option value="on">On: Claude plan only</option><option value="off">Off: allow paid use</option></select></div>
+            <div class="field"><label>Use at most<small>% of your plan's limits, then free rules until they reset</small></label><input id="s_max_plan_used_pct" type="number" min="1" max="100"></div>
             <div class="field"><label>Claude Code model<small>Blank uses your Claude Code default</small></label><select id="s_cli_model"><option value="">Default</option><option value="opus">Opus</option><option value="sonnet">Sonnet</option><option value="haiku">Haiku</option></select></div>
             <div class="field"><label>Decide every<small>Minutes between Claude's calls</small></label><input id="s_decision_minutes" type="number" min="1"></div>
             <div class="field stack"><label>Strategy notes<small>Plain English. Claude reads this before every decision.</small></label><textarea id="s_notes" placeholder="e.g. Only buy breakouts above the opening-range high with volume above 1.5x average."></textarea></div>
@@ -196,7 +210,7 @@
             <div class="field"><label>Max per stock<small>% of equity</small></label><input id="s_max_position_pct" type="number" min="1" max="100"></div>
             <div class="field"><label>Daily loss stop<small>% loss that closes everything for the day</small></label><input id="s_max_daily_loss_pct" type="number" step="0.5" min="0.5"></div>
           </div>
-          <p class="group-note">Simulation only. The engine cannot place real orders: broker order endpoints and trading SDKs are blocked in code. Not investment advice.</p>
+          <p class="group-note">Simulation only. The engine cannot place real orders: broker order endpoints and trading SDKs are blocked in code. Education only, not investment advice or a recommendation on any security. Breaking Money is not registered with SEBI. Simulated results are not real results. Investments in the securities market are subject to market risks.</p>
 
           <div class="group-title">Appearance</div>
           <div class="group">
@@ -226,6 +240,7 @@
       <div><label for="f_minutes">Decide every (min)</label><input class="input" id="f_minutes" type="number" min="1" value="15"></div>
       <div><label for="f_capital">Starting capital</label><input class="input" id="f_capital" type="number" min="1000" step="1000" value="100000"></div>
       <div id="f_days_wrap"><label for="f_days">Replay sessions</label><input class="input" id="f_days" type="number" min="1" max="20" value="1"></div>
+      <div class="full"><label>Skills</label><div class="preset-pick" id="sheetSkills"></div></div>
       <div class="full"><label for="f_watchlist">Watchlist</label><input class="input" id="f_watchlist" placeholder="Leave blank for the market's default list"></div>
     </div>
     <div class="sheet-foot"><button class="btn" id="sheetCancel">Cancel</button><button class="btn primary" id="sheetSpawn">Spawn agent</button></div>

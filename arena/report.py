@@ -30,7 +30,9 @@ def _cls(x: float) -> str:
 
 
 def write(j: Journal, run_id: int, path: str | Path, live: bool = False) -> Path:
+    from . import compliance
     run = j.one("SELECT * FROM runs WHERE id=?", (run_id,))
+    compliance.refuse_recent(j, run)
     cfg = json.loads(run["config_json"])
     from .markets import market_of
     mk = market_of(cfg)
@@ -306,7 +308,7 @@ footer{color:var(--muted);font-size:11px;margin-top:24px;text-align:center}
 <section class="card wide"><h2>Trade log</h2><div class="tbl">{{TRADES}}</div></section>
 <section class="card wide"><h2>Leaderboard <small>all runs in this database</small></h2><div class="tbl"><table><tr><th>Run</th><th>Name</th><th>Brain</th><th>Mode</th><th>Realised P&amp;L</th><th>Return</th><th>Status</th></tr>{{BOARD}}</table></div></section>
 </div>
-<footer>Simulation only. Virtual money, real prices, modelled slippage and {{FEES}}. No real orders are ever placed. Not investment advice.</footer>
+<footer>Simulation only. Virtual money, real prices, modelled slippage and {{FEES}}. No real orders are ever placed. Education only, not investment advice or a recommendation on any security. Breaking Money is not registered with SEBI. Simulated results do not predict real results.</footer>
 </div>
 <script>
 const D={{DATA}};

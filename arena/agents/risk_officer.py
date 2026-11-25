@@ -32,8 +32,7 @@ def review(d: dict, ctx: dict, st: dict, market_code: str) -> tuple[dict | None,
 def _short(d: dict, ctx: dict, st: dict, market_code: str, conf: float) -> tuple[dict | None, str]:
     r = ctx.get("regime") or {}
     snap = (ctx.get("snapshot") or {}).get(d.get("symbol")) or {}
-    mode = short_setting(st, "short_mode")
-    if mode == "off":
+    if "off" in (short_setting(st, "short_mode"), r.get("short_mode")):
         return None, "short selling is switched off"
     if st.get("product") != "intraday":
         return None, "shorts are intraday only"

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 
 SCHEMA = """
@@ -42,10 +43,14 @@ CREATE TABLE IF NOT EXISTS days (
 CREATE TABLE IF NOT EXISTS desk (
   run_id INTEGER, ts TEXT, agent TEXT, status TEXT, ms INTEGER, summary TEXT, payload TEXT
 );
+CREATE TABLE IF NOT EXISTS usage (
+  run_id INTEGER, ts TEXT, paid_by TEXT, model TEXT, input_tokens INTEGER, output_tokens INTEGER, list_usd REAL
+);
 CREATE TABLE IF NOT EXISTS notes (
   run_id INTEGER, ts TEXT, kind TEXT, text TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_equity_run ON equity(run_id, ts);
+CREATE INDEX IF NOT EXISTS ix_usage_run ON usage(run_id, ts);
 CREATE INDEX IF NOT EXISTS ix_desk_run ON desk(run_id, ts);
 CREATE INDEX IF NOT EXISTS ix_dec_run ON decisions(run_id, ts);
 """
@@ -77,6 +82,12 @@ class Journal:
     def one(self, sql: str, params=()) -> dict | None:
         r = self.conn.execute(sql, params).fetchone()
         return dict(r) if r else None
+
+    def add_usage(self, run_id: int, u: dict) -> None:
+        """One Claude call, stamped with this computer's local time."""
+        self.x("INSERT INTO usage VALUES (?,?,?,?,?,?,?)",
+               (run_id, datetime.now().isoformat(timespec="seconds"), u.get("paid_by", ""), u.get("model", ""),
+                u.get("input_tokens", 0), u.get("output_tokens", 0), u.get("list_usd")))
 
     def new_run(self, name, mode, feed, brain, model, capital, cfg, started_at) -> int:
         cur = self.x(

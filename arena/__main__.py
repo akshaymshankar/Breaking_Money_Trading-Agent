@@ -10,6 +10,7 @@ import webbrowser
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from . import compliance
 from .clock import IST, now_ist
 from .config import ROOT, load_config, load_env, set_env_value
 from .db import Journal
@@ -36,9 +37,8 @@ def _brain_cfg(cfg: dict, brain: str | None) -> dict:
     if brain:
         cfg["strategy"]["brain"] = brain
     if cfg["strategy"]["brain"] == "auto":
-        from .brain import find_claude
-        cfg["strategy"]["brain"] = ("claude-cli" if find_claude()
-                                    else "claude-api" if os.environ.get("ANTHROPIC_API_KEY") else "rules")
+        from .brain import auto_brain
+        cfg["strategy"]["brain"] = auto_brain()
     return cfg
 
 
@@ -59,8 +59,11 @@ def _make_run(j: Journal, cfg: dict, name: str, mode: str, feed_name: str, start
 # ---- commands ----------------------------------------------------------
 def cmd_run(a, cfg):
     from .feeds import make_live_feed
+    from .markets import market_of
     from .runner import Runner
 
+    if compliance.delayed(market_of(cfg)):
+        sys.exit(compliance.NOTE)
     cfg = _brain_cfg(cfg, a.brain)
     j = Journal(cfg["paths"]["db"])
     feed = make_live_feed(cfg)
@@ -129,14 +132,17 @@ def cmd_fetch(a, cfg):
     syms = cfg["market"]["watchlist"]
     if a.source == "upstox":
         from .feeds.upstox import UpstoxFeed
-        bars = UpstoxFeed(cache_dir=cfg["paths"]["data_dir"]).history(syms, days=a.days)
+        bars = UpstoxFeed(cache_dir=cfg["paths"]["data_dir"]).history(syms, days=a.days + compliance.INDIA_LAG_DAYS)
     else:
         from .feeds.yahoo import YahooFeed
-        period, interval = ("7d", "1m") if a.interval == "1m" else (f"{min(a.days, 59)}d", "5m")
-        bars = YahooFeed().history(syms, period=period, interval=interval)
+        from .markets import market_of
+        mk = market_of(cfg)
+        days = 59 if compliance.delayed(mk) else min(a.days, 59)
+        period, interval = ("7d", "1m") if a.interval == "1m" and not compliance.delayed(mk) else (f"{days}d", "5m")
+        bars = YahooFeed(mk).history(syms, period=period, interval=interval)
     paths = save_history(cfg, bars)
     for s, df in bars.items():
-        print(f"  {s:12s} {len(df):6d} bars  {df.index[0]:%Y-%m-%d} to {df.index[-1]:%Y-%m-%d}")
+        print(f"  {s:12s} {len(df):6d} bars" + (f"  {df.index[0]:%Y-%m-%d} to {df.index[-1]:%Y-%m-%d}" if len(df) else ""))
     print(f"Saved {len(paths)} files to {Path(cfg['paths']['data_dir']) / 'history'}")
 
 
@@ -151,7 +157,7 @@ def cmd_report(a, cfg):
     if not run:
         sys.exit("No runs yet.")
     if a.ai:
-        brain_name = a.brain or (cfg["strategy"]["brain"] if cfg["strategy"]["brain"] != "rules" else "claude-api")
+        brain_name = a.brain or (cfg["strategy"]["brain"] if cfg["strategy"]["brain"] != "rules" else "claude-cli")
         print("Asking Claude for a coach review...")
         print(ai_review(make_brain(_brain_cfg(cfg, brain_name)), j, run["id"]))
     out = a.out or (cfg["paths"]["report"] if run["mode"] == "live" else Path(cfg["paths"]["data_dir"]).parent / "reports" / f"{run['mode']}_run{run['id']}.html")
@@ -220,13 +226,15 @@ def cmd_check(a, cfg):
     except ImportError:
         print("  ok   broker SDK imports blocked")
     try:
-        from .feeds import make_live_feed
-        feed = make_live_feed(cfg)
-        q = feed.quotes(cfg["market"]["watchlist"][:3])
+        from . import marketdata
+        region = cfg["market"]["region"]
+        q = marketdata.quotes(region, cfg["market"]["watchlist"][:3])
         for s, x in q.items():
-            print(f"  ok   {feed.name}: {s} {x.ltp:.2f} ({x.change_pct:+.2f}%) at {x.ts:%d %b %H:%M}")
+            print(f"  ok   yahoo {region}: {s} {x['ltp']:.2f} ({x['chg_pct']:+.2f}%) at {datetime.fromisoformat(x['ts']):%d %b %H:%M}")
+        if compliance.delayed(region):
+            print("  info India prices are more than 30 days old, by design")
         if not q:
-            print(f"  WARN {feed.name}: no quotes returned"); ok = False
+            print(f"  WARN yahoo {region}: no quotes returned"); ok = False
     except Exception as e:
         print(f"  FAIL market data: {e}"); ok = False
     brain = _brain_cfg(cfg, None)["strategy"]["brain"]
@@ -251,6 +259,8 @@ def cmd_intel(a, cfg):
 
     cfg = for_region(cfg, a.region or cfg["market"]["region"])
     region, syms = cfg["market"]["region"], cfg["market"]["watchlist"]
+    if compliance.delayed(region):
+        sys.exit(compliance.NOTE)
     info = market_intel(region, syms, make_brain(_brain_cfg(cfg, None)) if a.claude else None)
     quotes = marketdata.quotes(region, syms)
     reg = assess({s: {"chg_pct": q["chg_pct"]} for s, q in quotes.items()}, info["gauges"])
@@ -276,7 +286,7 @@ def cmd_intel(a, cfg):
 
 def cmd_gui(a, cfg):
     from .gui import serve
-    serve(a.port, not a.no_open)
+    serve(a.port, not a.no_open, a.config)
 
 
 def main(argv=None):
@@ -309,7 +319,7 @@ def main(argv=None):
 
     sub.add_parser("status", help="list runs and their P&L")
     c = sub.add_parser("compete", help="several brains on the same replay data")
-    c.add_argument("--brains", default="rules,claude-api"); c.add_argument("--start"); c.add_argument("--end"); c.add_argument("--days", type=int)
+    c.add_argument("--brains", default="rules,claude-cli"); c.add_argument("--start"); c.add_argument("--end"); c.add_argument("--days", type=int)
     sub.add_parser("upstox-login", help="get today's Upstox market-data token")
     sub.add_parser("check", help="test safety guard, market data and Claude setup")
     it = sub.add_parser("intel", help="world news, crowd emotion and market regime right now")

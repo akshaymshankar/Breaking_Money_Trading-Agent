@@ -4,12 +4,14 @@ from pathlib import Path
 
 import pandas as pd
 
+from .. import compliance
 from .base import BarReplayFeed, PriceFeed, Quote, to_ist_index
 
 
 def make_live_feed(cfg: dict) -> PriceFeed:
     from ..markets import market_of
     mk = market_of(cfg)
+    compliance.refuse_live(mk)
     name = cfg["market"]["feed"]
     if name == "upstox" and mk.code == "IN":
         from .upstox import UpstoxFeed
@@ -21,7 +23,8 @@ def make_live_feed(cfg: dict) -> PriceFeed:
 
 
 def history_dir(cfg: dict) -> Path:
-    return Path(cfg["paths"]["data_dir"]) / "history"
+    from ..markets import market_of
+    return Path(cfg["paths"]["data_dir"]) / "history" / market_of(cfg).code
 
 
 def save_history(cfg: dict, bars: dict[str, pd.DataFrame]) -> list[Path]:
@@ -46,10 +49,11 @@ def load_csv(path: Path) -> pd.DataFrame:
 
 
 def load_history(cfg: dict, symbols: list[str]) -> dict[str, pd.DataFrame]:
-    d = history_dir(cfg)
+    from ..markets import market_of
+    d, mk = history_dir(cfg), market_of(cfg)
     out = {}
-    for s in symbols:
+    for s in compliance.allowed(symbols, mk):
         p = d / f"{s}.csv"
         if p.exists():
-            out[s] = load_csv(p)
+            out[s] = compliance.clip(load_csv(p), mk)
     return out

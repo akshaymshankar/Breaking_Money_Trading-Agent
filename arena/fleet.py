@@ -16,6 +16,7 @@ import time as _time
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from . import compliance, skills
 from .config import ROOT, load_config
 from .db import Journal
 from .markets import MARKETS, market_of
@@ -51,13 +52,13 @@ PRESETS = [
                    "trend; stay flat on choppy, range-bound days.",
     },
     {
-        "key": "bear", "name": "Bear Hunter", "icon": "chart.down", "profile": "balanced", "decision_minutes": 10,
+        "key": "bear", "name": "Bear Hunter", "icon": "chart.down", "needs": ["short-seller"], "profile": "balanced", "decision_minutes": 10,
         "persona": "Short seller for falling markets. Only SHORT when regime.shorts_allowed is true: breakdowns below the "
                    "day's low on volume, failed bounces into VWAP, and the weakest names while the list falls. COVER fast "
                    "when price regains VWAP or fear looks exhausted. In bull or neutral markets stay in cash.",
     },
     {
-        "key": "crowd", "name": "Crowd Reader", "icon": "people", "profile": "balanced", "decision_minutes": 15,
+        "key": "crowd", "name": "Crowd Reader", "icon": "people", "needs": ["emotion-analyst"], "profile": "balanced", "decision_minutes": 15,
         "persona": "Trades crowd emotion confirmed by price. Follow a mood while it is building; fade it only when it is "
                    "extreme (mood under 15 or over 85) and price has already turned. Say which emotion and headlines you "
                    "used in each reason. No price confirmation means HOLD.",
@@ -145,17 +146,18 @@ class Fleet:
         if spec.get("watchlist"):
             wl = spec["watchlist"]
             wl = [w.strip().upper() for w in (wl.split(",") if isinstance(wl, str) else wl) if str(w).strip()]
-            if wl:
-                cfg["market"]["watchlist"] = wl
+            wl = compliance.allowed(wl, market_of(cfg))
+            if not wl:
+                raise ValueError("Use US symbols for a US agent (for example AAPL).")
+            cfg["market"]["watchlist"] = wl
         if spec.get("capital"):
             cfg["account"]["starting_capital"] = float(spec["capital"])
         if spec.get("days"):
             cfg["account"]["challenge_days"] = max(1, int(spec["days"]))
         brain = spec.get("brain") or st["brain"]
         if brain == "auto":
-            from .brain import find_claude
-            import os
-            brain = "claude-cli" if find_claude() else "claude-api" if os.environ.get("ANTHROPIC_API_KEY") else "rules"
+            from .brain import auto_brain
+            brain = auto_brain()
         st["brain"] = brain
         if spec.get("model") is not None:
             st["cli_model"] = spec["model"] if brain == "claude-cli" else st.get("cli_model", "")
@@ -165,7 +167,11 @@ class Fleet:
             st["short_mode"] = spec["short_mode"]
         if spec.get("decision_minutes") or (preset and preset.get("decision_minutes")):
             st["decision_minutes"] = max(1, int(spec.get("decision_minutes") or preset["decision_minutes"]))
-        mode = "replay" if spec.get("mode") == "replay" else "live"
+        cfg["skills"] = skills.normalise(spec["skills"]) if isinstance(spec.get("skills"), list) else skills.selected(cfg)
+        if (preset or {}).get("needs"):
+            for k in preset["needs"]:
+                cfg["skills"] = skills.toggle(cfg["skills"], k, True)
+        mode = "replay" if spec.get("mode") == "replay" or compliance.delayed(region) else "live"
         j = self.journal()
         n_agents = j.one("SELECT COUNT(*) n FROM runs WHERE mode IN ('live','replay')")["n"]
         name = (spec.get("name") or (preset or {}).get("name") or "Claude").strip()
@@ -215,6 +221,8 @@ class Fleet:
                 return "No such agent."
             if run["status"] != "active":
                 return f"Agent is {run['status']}."
+            if run["mode"] == "live" and compliance.delayed(market_of(json.loads(run["config_json"]))):
+                return compliance.NOTE
             h = Handle(run_id)
             self.handles[run_id] = h
             LOGS.names[run_id] = run["name"]
@@ -253,6 +261,8 @@ class Fleet:
         mk = market_of(cfg)
         insights.set_currency(mk.symbol)
         cfg["paths"]["db"] = self.db_path
+        base = load_config(self.config_path)["strategy"]  # the spending lock always comes from config.toml
+        cfg["strategy"].update(plan_only=base.get("plan_only", True), max_plan_used_pct=base.get("max_plan_used_pct", 80))
         j = Journal(cfg["paths"]["db"])
         agent = cfg.get("agent", {})
         report = ROOT / "reports" / f"agent_{run['id']}.html"
@@ -275,7 +285,8 @@ class Fleet:
         from .feeds.yahoo import YahooFeed
 
         mk = market_of(cfg)
-        bars = YahooFeed(mk).history(cfg["market"]["watchlist"], period=f"{min(days + 6, 59)}d", interval="5m")
+        period = 59 if compliance.delayed(mk) else min(days + 6, 59)  # India: reach back past the 30-day delay
+        bars = YahooFeed(mk).history(cfg["market"]["watchlist"], period=f"{period}d", interval="5m")
         bars = {s: df for s, df in bars.items() if not df.empty}
         if not bars:
             raise RuntimeError("No price history returned by Yahoo for this watchlist.")
@@ -313,6 +324,35 @@ class Fleet:
         log.info("Agent #%d archived (its history stays in the journal).", run_id)
         return "ok"
 
+    # ---- skills ------------------------------------------------------
+    def skills_of(self, run_id: int) -> dict:
+        j = self.journal()
+        run = j.one("SELECT config_json FROM runs WHERE id=?", (run_id,))
+        if not run:
+            raise ValueError("No such agent.")
+        cfg = json.loads(run["config_json"])
+        last = {r["agent"]: {"ts": r["ts"], "status": r["status"], "summary": r["summary"]} for r in j.q(
+            "SELECT agent, ts, status, summary FROM desk WHERE rowid IN (SELECT MAX(rowid) FROM desk WHERE run_id=? GROUP BY agent)", (run_id,))}
+        return skills.listing(cfg, market_of(cfg).code, last)
+
+    def set_skill(self, run_id: int, key: str, on: bool) -> list[str]:
+        """Takes effect on the agent's next decision, even while it is running."""
+        with self.lock:
+            j = self.journal()
+            run = j.one("SELECT * FROM runs WHERE id=?", (run_id,))
+            if not run:
+                raise ValueError("No such agent.")
+            cfg = json.loads(run["config_json"])
+            new = skills.toggle(skills.selected(cfg), key, on)
+            cfg["skills"] = new
+            j.x("UPDATE runs SET config_json=? WHERE id=?", (json.dumps(cfg, default=str), run_id))
+            h = self.handles.get(run_id)
+            runner = h.runner if h else None
+            if runner:
+                runner.cfg["skills"] = list(new)
+        log.info("%s: %s switched %s", run["name"], skills.BY_KEY[key]["name"], "on" if on else "off")
+        return new
+
     @property
     def running(self) -> list[int]:
         return [rid for rid, h in self.handles.items() if h.alive]
@@ -339,6 +379,9 @@ class Fleet:
         spark = [r["equity"] for r in j.q(
             "SELECT equity FROM (SELECT ts, equity FROM equity WHERE run_id=? ORDER BY ts DESC LIMIT 80) ORDER BY ts",
             (run["id"],))]
+        use = j.one("SELECT COUNT(*) calls, COALESCE(SUM(input_tokens+output_tokens),0) tokens, ROUND(COALESCE(SUM(list_usd),0),4) list_usd "
+                    "FROM usage WHERE run_id=? AND substr(ts,1,10)=?", (run["id"], datetime.now().strftime("%Y-%m-%d")))
+        payer = j.one("SELECT paid_by, model FROM usage WHERE run_id=? ORDER BY rowid DESC LIMIT 1", (run["id"],)) or {}
         h = self.handles.get(run["id"])
         alive = bool(h and h.alive)
         phase = (h.runner.phase if h and h.runner else h.phase if h else "") or ""
@@ -355,7 +398,7 @@ class Fleet:
             "persona": agent.get("persona", ""), "preset": agent.get("preset", "custom"),
             "icon": agent.get("icon", "sparkle"), "color": agent.get("color", COLORS[run["id"] % len(COLORS)]),
             "primary": bool(agent.get("primary") or "agent" not in cfg),
-            "watchlist": cfg.get("market", {}).get("watchlist", []),
+            "watchlist": cfg.get("market", {}).get("watchlist", []), "skills": skills.selected(cfg),
             "decision_minutes": cfg.get("strategy", {}).get("decision_minutes"),
             "capital": cap, "equity": round(eq, 2), "pnl": round(eq - cap, 2),
             "pnl_pct": round((eq / cap - 1) * 100, 3) if cap else 0, "cash": round(acct["cash"], 2),
@@ -363,6 +406,7 @@ class Fleet:
             "win_rate": round((tr["w"] or 0) / tr["n"] * 100) if tr["n"] else None, "cycles": ndec,
             "days_done": days, "target_days": cfg.get("account", {}).get("challenge_days"),
             "started_at": run["started_at"], "spark": spark,
+            "usage": {"today": use, "paid_by": payer.get("paid_by", ""), "model": payer.get("model", "")},
             "decisions_made": h.runner.decisions_made if h and h.runner else None,
         }
 
@@ -372,6 +416,10 @@ class Fleet:
         if not run:
             return {}
         s = self._summary(j, run)
+        if compliance.recent_run(j, run):
+            s.update(hidden=True, positions_list=[], decisions=[], market_view=None, trades_list=[], fills=[], desk=None, regime=None,
+                     equity_curve=[], log=[])
+            return s
         s["positions_list"] = j.q("SELECT symbol, qty, avg_price, last_price, stop, target, opened_at, entry_reason "
                                   "FROM positions WHERE run_id=? ORDER BY opened_at", (run_id,))
         s["decisions"] = j.q("SELECT id, ts, symbol, action, allocation_pct, confidence, stop_loss_pct, target_pct, reason, "

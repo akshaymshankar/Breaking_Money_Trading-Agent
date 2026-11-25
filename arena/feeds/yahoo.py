@@ -10,6 +10,7 @@ from datetime import datetime
 
 import pandas as pd
 
+from .. import compliance
 from ..markets import IN, Market
 from .base import CANDLE_COLS, PriceFeed, Quote, resample, to_ist_index
 
@@ -32,6 +33,9 @@ class YahooFeed(PriceFeed):
     def _download(self, symbols: list[str], period: str = "5d", interval: str = "1m") -> dict[str, pd.DataFrame]:
         import yfinance as yf
 
+        symbols = compliance.allowed(symbols, self.market)
+        if not symbols:
+            return {}
         tickers = [s + self.suffix for s in symbols]
         raw = yf.download(tickers, period=period, interval=interval, group_by="ticker",
                           auto_adjust=False, progress=False, threads=True)
@@ -42,7 +46,7 @@ class YahooFeed(PriceFeed):
                 if isinstance(df.columns, pd.MultiIndex):
                     df = df.droplevel(0, axis=1) if t in df.columns.get_level_values(0) else df.droplevel(1, axis=1)
                 df = df.rename(columns=str.lower)[CANDLE_COLS].dropna(subset=["close"])
-                out[s] = to_ist_index(df, self.market.tz)
+                out[s] = compliance.clip(to_ist_index(df, self.market.tz), self.market)
             except KeyError:
                 continue
         return out

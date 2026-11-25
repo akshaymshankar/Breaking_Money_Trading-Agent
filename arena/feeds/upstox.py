@@ -1,7 +1,7 @@
 """Upstox market-data adapter (read-only).
 
-Uses the user's own Upstox account and only the market-quote, historical-candle
-and login endpoints, through SafeHTTP. There is no order code here and
+Uses the user's own Upstox account and only the instrument-list,
+historical-candle and login endpoints, through SafeHTTP. There is no order code here and
 SafeHTTP refuses order URLs anyway.
 
 Access tokens expire daily. Run `python -m arena upstox-login` each morning,
@@ -19,7 +19,9 @@ from urllib.parse import quote as urlquote
 
 import pandas as pd
 
+from .. import compliance
 from ..clock import now_ist
+from ..markets import IN
 from ..safety import SafeHTTP
 from .base import CANDLE_COLS, PriceFeed, Quote, resample, to_ist_index
 
@@ -65,23 +67,7 @@ class UpstoxFeed(PriceFeed):
 
     # ---- quotes ------------------------------------------------------
     def quotes(self, symbols: list[str]) -> dict[str, Quote]:
-        keys = {self.instrument_key(s): s for s in symbols}
-        r = self.http.get(f"{API}/v2/market-quote/quotes", params={"instrument_key": ",".join(keys)}, headers=self._headers)
-        r.raise_for_status()
-        out = {}
-        for _, q in r.json().get("data", {}).items():
-            sym = keys.get(q.get("instrument_token", "")) or q.get("symbol")
-            if sym not in symbols:
-                continue
-            ohlc = q.get("ohlc", {})
-            ltp = float(q["last_price"])
-            prev_close = ltp - float(q.get("net_change", 0.0))
-            out[sym] = Quote(
-                symbol=sym, ltp=ltp, open=float(ohlc.get("open", ltp)), high=float(ohlc.get("high", ltp)),
-                low=float(ohlc.get("low", ltp)), prev_close=prev_close, volume=float(q.get("volume", 0)),
-                ts=now_ist(), bar_volume=float(q.get("volume", 0)) / 75,  # rough per-5-min share of the day
-            )
-        return out
+        raise compliance.DelayedMarket(compliance.NOTE)  # live Indian prices are never used
 
     # ---- candles -----------------------------------------------------
     def _fetch_candles(self, url: str) -> pd.DataFrame:
@@ -92,7 +78,7 @@ class UpstoxFeed(PriceFeed):
             return pd.DataFrame(columns=CANDLE_COLS)
         df = pd.DataFrame([row[:6] for row in rows], columns=["ts"] + CANDLE_COLS)
         df.index = pd.to_datetime(df.pop("ts"))
-        return to_ist_index(df.sort_index())
+        return compliance.clip(to_ist_index(df.sort_index()), IN)
 
     def minute_bars(self, symbol: str, days: int = 3) -> pd.DataFrame:
         key = urlquote(self.instrument_key(symbol), safe="")
