@@ -18,8 +18,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import compliance, marketdata, skills
-from .brain import plan_limits
+from . import always, autopilot, compliance, marketdata, skills
+from .brain import plan_limits, remember_limits
 from .config import ROOT, load_config
 from .fleet import LOGS, PRESETS, Fleet
 from .markets import MARKETS
@@ -35,6 +35,7 @@ class Controller:
         self.claude = {"checked": False}
         self.claude_lock = threading.Lock()
         self.side_task = ""  # demo / review running in the background
+        self.autopilot = autopilot.Autopilot(self.fleet)
         threading.Thread(target=self._claude_info, daemon=True).start()
 
     # ---- Claude connection ------------------------------------------
@@ -61,6 +62,7 @@ class Controller:
     # ---- trading -----------------------------------------------------
     def start(self, region: str | None) -> dict:
         region = (region or load_config(self.config_path)["market"]["region"]).upper()
+        self.autopilot.release(region)
         if compliance.delayed(region):  # India has no live sessions: Start replays an older one
             rid = self.fleet.spawn({"region": region, "name": f"Claude · Practice {region}", "mode": "replay", "replay_days": 1,
                                     "persona": ""}, start=False)
@@ -69,8 +71,62 @@ class Controller:
         msg = self.fleet.start(rid)
         return {"msg": msg, "id": rid}
 
+    def set_autopilot(self, on: bool) -> dict:
+        """Works while agents run: it changes who presses Start, not how they trade."""
+        text = self.config_path.read_text(encoding="utf-8-sig")
+        if not re.search(r"(?m)^\s*\[autopilot\]", text):
+            text = text.rstrip("\n") + "\n\n[autopilot]\n"
+        import tomllib
+        new = set_toml(text, "autopilot", "enabled", bool(on))
+        tomllib.loads(new)  # never save a file that would not open
+        tmp = self.config_path.with_suffix(".toml.tmp")
+        tmp.write_text(new, encoding="utf-8")
+        os.replace(tmp, self.config_path)
+        log.info("Auto-run switched %s", "on" if on else "off")
+        return {"msg": "ok"}
+
+    def set_autostart(self, on: bool) -> dict:
+        (always.autostart_on if on else always.autostart_off)()
+        return {"msg": "ok"}
+
+    def _hold_for(self, rid: int | None) -> None:
+        """A person pressed Stop: auto-run must not start that market again this session."""
+        if rid is not None:
+            self.autopilot.forget(rid)
+        if rid is None:
+            for region in MARKETS:
+                self.autopilot.hold(region)
+            return
+        j = self.fleet.journal()
+        run = j.one("SELECT mode, config_json FROM runs WHERE id=?", (rid,))
+        j.conn.close()
+        c = json.loads(run["config_json"]) if run else {}
+        region = str(c.get("market", {}).get("region") or "IN").upper()
+        if run and (region != "US" or c.get("agent", {}).get("primary") or "agent" not in c):
+            self.autopilot.hold(region)
+
     def stop(self, rid: int | None) -> dict:
-        return {"msg": self.fleet.stop(rid) if rid else self.fleet.stop_all()}
+        with self.autopilot.lock:  # so auto-run cannot start something in between
+            msg = self.fleet.stop(rid) if rid else self.fleet.stop_all()
+            try:
+                self._hold_for(rid)
+            except Exception:  # stopping comes first; if unsure which market, hold both
+                log.exception("Could not tell which market to hold, so both are")
+                for region in MARKETS:
+                    self.autopilot.hold(region)
+        return {"msg": msg}
+
+    def remove(self, rid: int) -> dict:
+        self.stop(rid)
+        return {"msg": self.fleet.remove(rid)}
+
+    def start_agent(self, rid: int) -> dict:
+        j = self.fleet.journal()
+        run = j.one("SELECT config_json FROM runs WHERE id=?", (rid,))
+        j.conn.close()
+        if run:
+            self.autopilot.release(str(json.loads(run["config_json"]).get("market", {}).get("region") or "IN").upper())
+        return {"msg": self.fleet.start(rid)}
 
     def demo(self, days: int = 3) -> str:
         if self.side_task:
@@ -173,6 +229,7 @@ class Controller:
             "side_task": self.side_task,
             "agents": self.fleet.summaries(),
             "running": self.fleet.running,
+            "autopilot": {**self.autopilot.status(), "autostart": always.autostart_state(), "can_autostart": os.name == "nt"},
             "presets": PRESETS,
             "skill_choices": [{"key": s["key"], "name": s["name"], "kind": s["kind"], "requires": s.get("requires", ""),
                                "markets": s.get("markets", "")} for s in skills.REGISTRY if s["kind"] != "manual"],
@@ -407,11 +464,15 @@ def make_handler(ctl: Controller):
                            for k in keys]
                     return self._json({"msg": "ok", "ids": ids})
                 if path == "/api/agents/start":
-                    return self._json({"msg": ctl.fleet.start(int(body["id"]))})
+                    return self._json(ctl.start_agent(int(body["id"])))
                 if path == "/api/agents/stop":
-                    return self._json({"msg": ctl.fleet.stop(int(body["id"]))})
+                    return self._json(ctl.stop(int(body["id"])))
+                if path == "/api/autopilot":
+                    return self._json(ctl.set_autopilot(body.get("on") is True))
+                if path == "/api/autostart":
+                    return self._json(ctl.set_autostart(body.get("on") is True))
                 if path == "/api/agents/remove":
-                    return self._json({"msg": ctl.fleet.remove(int(body["id"]))})
+                    return self._json(ctl.remove(int(body["id"])))
                 if path == "/api/skills":
                     return self._json(ctl.set_skill(int(body["id"]) if body.get("id") else None, str(body["key"]), body.get("on") is True))
                 if path == "/api/skills/run":
@@ -444,6 +505,17 @@ def serve(port: int = 8787, open_browser: bool = True, config_path=None) -> None
     logging.getLogger().addHandler(LOGS)
     mimetypes.add_type("text/javascript", ".js")
     mimetypes.add_type("text/css", ".css")
+    folder = always.journal_folder(load_config(config_path))
+    one = always.OneCopy(folder)
+    if not one.take():  # two copies on one journal would overwrite each other's trades
+        there = one.port()
+        url = f"http://127.0.0.1:{there}/" if there else ""
+        print(f"\n  The Arena is already open{' at ' + url if url else ''}. Using that one.\n")
+        if open_browser and url:
+            webbrowser.open(url)
+        raise SystemExit(always.ALREADY_OPEN if os.environ.get("ARENA_SUPERVISED") else 0)
+    one.clear_port()
+    remember_limits(folder / "claude_limits.json")
     ctl = Controller(config_path)
 
     class Server(ThreadingHTTPServer):
@@ -460,6 +532,8 @@ def serve(port: int = 8787, open_browser: bool = True, config_path=None) -> None
             continue
     else:
         raise SystemExit("No free port between 8787 and 8796.")
+    one.set_port(p)
+    threading.Thread(target=autopilot.run_forever, args=(ctl.autopilot, ctl._claude_info), daemon=True, name="autopilot").start()
     url = f"http://127.0.0.1:{p}/"
     print(f"\n  Breaking Money · AI Trading Arena is running at {url}\n  Keep this window open. Close it to quit.\n")
     if open_browser:

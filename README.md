@@ -41,6 +41,16 @@ The sidebar card at the bottom left shows whether Claude is connected. If someth
 
 **Markets:** United States (NYSE / Nasdaq, 9:30 to 16:00 New York time) is the default. India (NSE) is **practice only**: switch to it at the top of the Trade screen and press **Start practice** to replay a session that is more than 30 days old. There are no live Indian sessions, because SEBI sets a 30-day lag on price data used for education. The delay is built in and is not a setting.
 
+### Keep it running by itself (Windows)
+
+Settings → **Always on**:
+
+- **Auto-run** starts the main US agent for every US session (about 19:00 or 20:00 to 01:30 or 02:30 India time) and one India practice replay every trading day from 09:20 IST, on an older session it has not replayed yet. India has no live sessions: its prices are always more than 30 days old. If the agent stops on an error, it starts again, and the day's loss limit carries on. When a challenge finishes its days, the next session opens a new virtual account. Auto-run is off by default.
+- **Start with Windows** opens the app, minimised, when you sign in, and opens it again if it crashes. While plugged in it asks Windows not to sleep by itself. It cannot run while the computer is off, asleep, signed out or its lid is closed (unless you changed what closing the lid does).
+- **Stop always wins.** A market you stop stays stopped until its next session. Closing the minimised window ends everything.
+
+Auto-run uses your Claude plan every day. The spending lock still applies: when your limit is reached, or Claude is signed out, the free rules decide instead and the sidebar says so. The app opens once only: a second copy would overwrite the first one's trades, so it opens the running one instead.
+
 ### Other ways to let Claude decide
 
 The app uses your Claude Code login when it finds one. **Automatic never spends API credits**: if an `ANTHROPIC_API_KEY` is saved on your computer, the app hides it from Claude Code, so calls go to your Claude plan. The sidebar card shows who pays.
@@ -170,6 +180,8 @@ We do not support Zerodha Kite for this, because Kite's terms restrict virtual/m
 |---|---|
 | `python -m arena gui` | Control panel in your browser: Start/Stop, settings, live log and dashboard. `START-TRADING.bat` opens it. |
 | `python -m arena demo [--days 15] [--brain rules\|claude-api]` | Full challenge on synthetic prices. Safe to run any time, offline. |
+| `python -m arena always` | Keeps the app running and opens it again if it crashes. |
+| `python -m arena autostart on\|off\|status` | Starts it when you sign in to Windows. |
 | `python -m arena check` | Proves order URLs and broker SDKs are blocked, then tests prices and Claude. |
 | `python -m arena run [--new] [--name "..."]` | Live US session. Resumes the active run unless you pass `--new`. Refuses India. |
 | `python -m arena fetch [--source yahoo\|upstox] [--days 30]` | Saves past 5-minute bars to `data/history/` for replay. |
@@ -208,6 +220,8 @@ arena/
   markets.py     US and India market hours, currency, ticks
   marketdata.py  watchlist quotes, index strip and chart candles
   compliance.py  India price delay: withholds the last 30 days
+  autopilot.py   auto-run: starts sessions by itself (off by default)
+  always.py      one copy only, restart after a crash, start with Windows
   safety.py      real-money block (allow-list, SDK import block, paper_only lock)
   engine.py      virtual account, fills, stops, square-off
   charges.py     US regulatory fees and Indian charges (edit rates in config.toml)

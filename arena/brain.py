@@ -58,6 +58,18 @@ def billing(exe: str, ttl: float = 600) -> dict:
     return out
 
 _limits: dict = {}  # the plan limits Claude Code reported on its last call
+_limits_file = None
+
+
+def remember_limits(path) -> None:
+    """Keep the limits in a file, so a restart cannot forget that the plan is used up or that paid credits were in use."""
+    global _limits_file
+    _limits_file = path
+    try:
+        with open(path, encoding="utf-8") as f:
+            _limits.update({k: v for k, v in json.load(f).items() if k not in _limits})
+    except Exception:
+        pass
 
 
 def plan_refusal(exe: str, st: dict) -> str:
@@ -91,6 +103,12 @@ def _note_limits(info: dict) -> None:
             _limits[str(name)] = {"used": float(used) * 100, "resets": float(w.get("resetsAt") or time.time() + 3600)}
     if info.get("isUsingOverage"):
         _limits["overage"] = max([time.time() + 3600, float(info.get("resetsAt") or 0)])
+    if _limits_file:
+        try:
+            with open(_limits_file, "w", encoding="utf-8") as f:
+                json.dump(_limits, f)
+        except Exception as e:
+            log.warning("Could not save the plan limits: %s", str(e)[:120])
 
 
 DECISION_SCHEMA = {

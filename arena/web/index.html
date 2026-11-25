@@ -32,7 +32,7 @@
       <div class="claude-card">
         <div class="row1">
           <div class="claude-mark"><svg class="i" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/></svg></div>
-          <div style="min-width:0"><b id="claudeName">Claude</b><small id="claudeSub">Checking connection…</small><small id="claudePay"></small></div>
+          <div style="min-width:0"><b id="claudeName">Claude</b><small id="claudeSub">Checking connection…</small><small id="claudePay"></small><small id="autoLine"></small></div>
           <span class="dot" id="claudeDot" style="margin-left:auto"></span>
         </div>
         <button class="btn sm test" id="claudeTest">Test connection</button>
@@ -180,6 +180,13 @@
       <!-- SETTINGS -->
       <section class="view hidden" id="view-settings">
         <div class="settings">
+          <div class="group-title">Always on</div>
+          <div class="group">
+            <div class="field"><label>Auto-run<small id="autoNote">Starts the US session every night and one India practice every trading day</small></label><select id="autoPick"><option value="off">Off</option><option value="on">On</option></select></div>
+            <div class="field" id="bootField"><label>Start with Windows<small>Opens by itself when you sign in, and opens again if it crashes</small></label><select id="bootPick"><option value="off">Off</option><option value="on">On</option></select></div>
+          </div>
+          <p class="group-note">Virtual money only. Pressing Stop always wins: that market stays stopped until its next session. The computer must be on, awake and signed in.</p>
+
           <div class="group-title">Market</div>
           <div class="group">
             <div class="field"><label>Default market<small>What the Start button trades</small></label><select id="s_region"><option value="US">United States</option><option value="IN">India</option></select></div>

@@ -64,6 +64,13 @@ def cmd_run(a, cfg):
 
     if compliance.delayed(market_of(cfg)):
         sys.exit(compliance.NOTE)
+    from .always import OneCopy, journal_folder
+    from .brain import remember_limits
+    one = OneCopy(journal_folder(cfg))
+    if not one.take():
+        sys.exit("The Arena is already open. Close it first, or use that window.")
+    one.clear_port()
+    remember_limits(journal_folder(cfg) / "claude_limits.json")
     cfg = _brain_cfg(cfg, a.brain)
     j = Journal(cfg["paths"]["db"])
     feed = make_live_feed(cfg)
@@ -289,6 +296,22 @@ def cmd_gui(a, cfg):
     serve(a.port, not a.no_open, a.config)
 
 
+def cmd_always(a, cfg):
+    from .always import keep_running
+    sys.exit(keep_running(a.port))
+
+
+def cmd_autostart(a, cfg):
+    from . import always
+    if a.switch == "on":
+        print("Starts with Windows:", always.autostart_on())
+    elif a.switch == "off":
+        always.autostart_off()
+        print("It no longer starts with Windows.")
+    else:
+        print("Starts with Windows: " + ("yes" if always.autostart_state() else "no"))
+
+
 def main(argv=None):
     load_env()
     p = argparse.ArgumentParser(prog="arena", description="Breaking Money AI Trading Arena (paper trading only)")
@@ -328,7 +351,14 @@ def main(argv=None):
     g = sub.add_parser("gui", help="open the control panel in your browser")
     g.add_argument("--port", type=int, default=8787); g.add_argument("--no-open", action="store_true")
 
+    al = sub.add_parser("always", help="keep the app running: opens it again if it crashes")
+    al.add_argument("--port", type=int, default=8787)
+    au = sub.add_parser("autostart", help="start the app when you sign in to Windows")
+    au.add_argument("switch", choices=["on", "off", "status"])
+
     a = p.parse_args(argv)
+    if a.cmd in ("always", "autostart"):  # no trading code runs here
+        return {"always": cmd_always, "autostart": cmd_autostart}[a.cmd](a, None)
     cfg = load_config(a.config)
     install_guards(cfg)
     setup_logging(cfg)

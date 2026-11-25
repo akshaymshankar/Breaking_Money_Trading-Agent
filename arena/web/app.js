@@ -178,6 +178,21 @@ function renderChrome() {
   $("claudeName").textContent = name; $("claudeSub").textContent = sub; $("claudeSub").title = c.error || c.cli_path || "";
   $("claudeDot").className = "dot " + dot;
 
+  const ap = sv.autopilot || {};
+  $("autoLine").textContent = ap.enabled ? "Auto-run: " + ap.note : "";
+  $("autoLine").className = "";
+  if (ap.enabled && brain === "claude-api" && !c.plan_only) {
+    $("autoLine").textContent = "Auto-run is on with a paid API key: every session costs money.";
+    $("autoLine").className = "warn";
+  }
+  if (ap.enabled && brain !== "rules" && brain !== "claude-api" && c.checked && (!c.cli || c.logged_in === false)) {
+    $("autoLine").textContent = "Auto-run is on, but Claude is signed out: free rules are deciding.";
+    $("autoLine").className = "warn";
+  }
+  if (document.activeElement !== $("autoPick")) $("autoPick").value = ap.enabled ? "on" : "off";
+  if (document.activeElement !== $("bootPick")) $("bootPick").value = ap.autostart ? "on" : "off";
+  $("bootField").classList.toggle("hidden", !ap.can_autostart);
+
   const nRun = sv.running.length;
   $("navCount").textContent = nRun; $("navCount").classList.toggle("hidden", !nRun);
 
@@ -858,6 +873,14 @@ $("sheet").addEventListener("click", (e) => { if (e.target.id === "sheet") close
 $("sheetSpawn").addEventListener("click", spawnFromSheet);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
 $("saveBtn").addEventListener("click", saveSettings);
+$("autoPick").addEventListener("change", async (e) => {
+  const on = e.target.value === "on", r = await api("/api/autopilot", { on });
+  e.target.blur(); toast(r.msg === "ok" ? (on ? "Auto-run is on." : "Auto-run is off. Running agents keep going until you stop them.") : r.msg); await poll();
+});
+$("bootPick").addEventListener("change", async (e) => {
+  const on = e.target.value === "on", r = await api("/api/autostart", { on });
+  e.target.blur(); toast(r.msg === "ok" ? (on ? "It will start with Windows." : "It will not start with Windows.") : r.msg); await poll();
+});
 $("demoBtn").addEventListener("click", async () => { const r = await api("/api/demo", { days: 3 }); toast(r.msg === "ok" ? "Demo running on made-up prices. Open /demo when it finishes." : r.msg); });
 $("reviewBtn").addEventListener("click", async () => { if (!S.journalId) return; const r = await api("/api/review", { id: S.journalId }); toast(r.msg === "ok" ? "Claude is writing a coach review. It appears in the full report." : r.msg); });
 $("themePick").addEventListener("change", (e) => applyTheme(e.target.value));

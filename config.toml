@@ -65,6 +65,12 @@ enabled = true
 refresh_minutes = 15           # one reading per market, shared by all agents
 claude_emotion = true          # let Claude read the emotion (one extra Claude call per refresh)
 
+[autopilot]
+# Auto-run: start the US session every night and one India practice replay every trading day, by itself.
+# Off by default. Turn it on in Settings. It uses your Claude plan's limits each day.
+enabled = false
+india_practice = true          # India is always practice, on prices more than 30 days old
+
 [skills]
 # Skills switched on for new agents. Change them on the Skills page; each agent then keeps its own selection.
 enabled = ["news-scout", "emotion-analyst", "short-seller"]

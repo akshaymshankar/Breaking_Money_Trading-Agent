@@ -43,7 +43,9 @@ tool runs only while its file matches the reviewed hash in `arena/skill_pins.jso
 8. New network hosts go in `arena/safety.py` as exact, read-only GET paths.
 9. Claude Code always runs with `brain.plan_env()`, so a saved API key is never billed. `plan_only` (default on) refuses every call
    the plan does not cover, and unknown counts as not covered. Pay-per-use needs the lock off and the key chosen by name.
-10. `tests/` must pass: `python -m unittest discover tests`. Test first for money or safety changes.
+10. Auto-run (`arena/autopilot.py`) only presses Start. It never trades, never overrides a person's Stop, and is off by default.
+    One copy per journal (`always.OneCopy`): anything that runs live sessions takes that lock.
+11. `tests/` must pass: `python -m unittest discover tests`. Test first for money or safety changes.
 
 ## Development agents and skills
 

@@ -103,6 +103,7 @@ class Handle:
         self.thread: threading.Thread | None = None
         self.runner = None
         self.error = ""
+        self.stop = False        # Stop pressed, also while it is still loading
         self.started = 0.0
         self.phase = "starting"
         self.phase_detail = ""
@@ -184,6 +185,7 @@ class Fleet:
             "primary": bool(spec.get("primary")),
             "mode": mode,
             "replay_days": max(1, min(int(spec.get("replay_days") or 1), 20)),
+            **({"replay_until": str(spec["replay_until"])} if spec.get("replay_until") else {}),
             "spawned_at": datetime.now().isoformat(timespec="seconds"),
         }
         if mode == "replay":
@@ -276,7 +278,10 @@ class Fleet:
             feed = make_live_feed(cfg)
         log.info("%s live · feed %s · brain %s%s · PAPER ONLY", run["name"], feed.name, cfg["strategy"]["brain"],
                  (" (" + cfg["strategy"]["cli_model"] + ")") if cfg["strategy"].get("cli_model") else "")
+        if h.stop:
+            return
         h.runner = Runner(cfg, feed, j, run["id"], report_path=report)
+        h.runner.stop_requested = h.stop
         h.runner.write_report()
         h.runner.run()
 
@@ -293,6 +298,9 @@ class Fleet:
         today = mk.now().date()
         dates = sorted({d for df in bars.values() for d in df.index.date
                         if not (d == today and mk.is_open(mk.now(), set()))})  # skip today's unfinished session
+        until = cfg.get("agent", {}).get("replay_until")
+        if until:  # auto-run asks for one particular older session
+            dates = [d for d in dates if d.isoformat() <= until] or dates
         pick = dates[-days:]
         start = datetime.combine(pick[0], mk.open, tzinfo=mk.tz)
         end = datetime.combine(pick[-1], mk.close, tzinfo=mk.tz)
@@ -301,18 +309,18 @@ class Fleet:
 
     def stop(self, run_id: int) -> str:
         h = self.handles.get(run_id)
-        if h and h.runner:
-            h.runner.stop_requested = True
-            h.phase = "stopping"
+        if h and h.alive:
+            h.stop, h.phase = True, "stopping"
+            if h.runner:
+                h.runner.stop_requested = True
             return "ok"
         return "Not running."
 
     def stop_all(self) -> str:
         n = 0
         for rid, h in list(self.handles.items()):
-            if h.alive and h.runner:
-                h.runner.stop_requested = True
-                h.phase = "stopping"
+            if h.alive:
+                self.stop(rid)
                 n += 1
         log.info("Stopping %d agent(s) after their current step...", n)
         return "ok" if n else "Nothing is running."

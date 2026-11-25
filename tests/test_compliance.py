@@ -288,7 +288,7 @@ class App(Base):
 
     def test_start_button_practises(self):
         ctl = gui.Controller.__new__(gui.Controller)
-        ctl.config_path, ctl.fleet = ROOT / "config.toml", self.fleet()
+        ctl.config_path, ctl.fleet, ctl.autopilot = ROOT / "config.toml", self.fleet(), mock.Mock()
         with mock.patch.object(Fleet, "start", return_value="ok") as go:
             r = ctl.start("IN")
         self.assertEqual((r["msg"], self.run_row(r["id"])["mode"]), ("ok", "replay"))

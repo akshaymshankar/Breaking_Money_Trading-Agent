@@ -19,6 +19,8 @@ from .markets import market_of
 
 log = logging.getLogger("arena")
 
+STALE = timedelta(minutes=25)  # live prices older than this: the market closed early, or the feed is down
+
 
 class Runner:
     def __init__(self, cfg: dict, feed: PriceFeed, journal: Journal, run_id: int, brain=None, report_path=None):
@@ -68,6 +70,13 @@ class Runner:
         self.day_start_equity = self.broker.equity
         self.killed = False
         self.next_decision = now
+        if self.feed.live:  # reopened during the same day: the day's loss limit carries on, it does not start over
+            d = self.day.isoformat()
+            first = self.j.one("SELECT equity FROM equity WHERE run_id=? AND substr(ts,1,10)=? ORDER BY ts LIMIT 1", (self.run_id, d))
+            if first:
+                self.day_start_equity = first["equity"]
+                self.killed = bool(self.j.one("SELECT 1 x FROM trades WHERE run_id=? AND substr(exit_ts,1,10)=? AND exit_reason='kill_switch' "
+                                              "LIMIT 1", (self.run_id, d)))
         log.info("=== Day %d  %s  equity %s ===", self.days_done() + 1, self.day, self.market.money(self.day_start_equity))
 
     def close_day(self, now: datetime) -> None:
@@ -293,7 +302,10 @@ class Runner:
             for m in b.square_off_all(now, quotes, "square_off"):
                 log.info(m)
         elif self.next_decision and now >= self.next_decision:
-            self.decide_and_execute(now, quotes)
+            if self.feed.live and now - max(q.ts for q in quotes.values()) > STALE:
+                log.info("No fresh prices (early close or a feed problem). Stops keep running, no new decisions.")
+            else:
+                self.decide_and_execute(now, quotes)
             self.next_decision = now + timedelta(minutes=self.st["decision_minutes"])
         if not self.last_snapshot or now - self.last_snapshot >= timedelta(minutes=5):
             b.snapshot(now)
