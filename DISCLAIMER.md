@@ -4,6 +4,12 @@ Last updated: 25 November 2026. Please read this before you use the app, the gui
 
 **Who we are.** Breaking Money and the contributors are not registered with SEBI as an investment adviser, research analyst, stock broker or in any other role. SEBI has not reviewed, approved or endorsed this project.
 
+**Free software, not a service.** This is open-source software under the MIT licence. Each person downloads it and runs it on their own computer, with their own Claude account and their own market data. Breaking Money hosts no trading platform, holds no accounts, and charges nothing for the software. There are no fees, prizes, contests or leagues.
+
+**What our courses are.** Breaking Money's paid courses teach how to build and test AI agents, skills and strategies. They do not provide stock tips, buy or sell signals, research reports, ready-made strategies for real trading, portfolio advice, or claims of returns, and nothing in them should be read that way.
+
+**Real trading is outside this project.** The software cannot connect to a broker. If you choose to trade real money with an algorithm, use only your own SEBI-registered broker and its approved route for retail algorithmic trading, and follow SEBI's framework for it. That decision and its risks are yours.
+
 **Education only, not investment advice.** The app, the code, the guide, its results pages and Breaking Money videos teach how AI agents can be built and controlled. Nothing in them is investment, trading, tax or legal advice, a research report, or a recommendation to buy, sell or hold any security. BUY, SELL, SHORT, COVER and HOLD are outputs of a simulation running on your own computer. They are not tips, signals or calls from Breaking Money. Do not act on them with real money.
 
 **No personal advice.** Paying for a subscription buys access to education and software help. It does not buy advice on your money, and we do not manage, accept or hold anyone's funds.

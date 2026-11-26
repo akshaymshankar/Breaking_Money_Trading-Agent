@@ -6,6 +6,15 @@ The Arena runs on your own computer. It watches prices and charts, reads world n
 
 > ⚠️ **Education only. Paper trading only. Not investment advice.** Breaking Money is **not registered with SEBI**. The app uses virtual money and **cannot place real orders**: broker order URLs and trading SDKs are blocked, and it refuses to start if `paper_only` is switched off. Its BUY and SELL calls are simulation outputs, not tips. Simulated results are not real returns. SEBI has warned the public about paper-trading apps (PR No. 27/2024). Read [DISCLAIMER.md](DISCLAIMER.md) before you use it.
 
+## Free software you run yourself
+
+- **Free and open source** under the MIT licence. You download it and run it on your own computer. There is no hosted service, no sign-up with us and no account on any platform of ours.
+- **Your data, your account.** Your copy fetches prices for your own personal use, and Claude runs on your own Claude login. No price data is in this repository. Do not redistribute it.
+- **Practice only.** Virtual money, no real orders, no broker connection, and no fees, prizes, contests or leagues.
+- **India uses prices more than 30 days old**, always.
+- **Breaking Money teaches how to build AI agents, skills and strategy tests.** The software stays free. Our courses do not include stock tips, buy or sell signals, ready-made strategies for real trading, or claims of returns.
+- **Real money is outside this project.** If you ever trade with an algorithm, do it only through your own SEBI-registered broker's approved route for retail algorithmic trading, and follow SEBI's rules. This project will never connect to a broker.
+
 **What you need:** a Windows, Mac or Linux computer, internet, and a **Claude Pro or Max** plan (Claude trades using your own Claude login). No broker account, no API key and no paid data.
 
 ---

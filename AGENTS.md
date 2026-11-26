@@ -45,7 +45,9 @@ tool runs only while its file matches the reviewed hash in `arena/skill_pins.jso
    the plan does not cover, and unknown counts as not covered. Pay-per-use needs the lock off and the key chosen by name.
 10. Auto-run (`arena/autopilot.py`) only presses Start. It never trades, never overrides a person's Stop, and is off by default.
     One copy per journal (`always.OneCopy`): anything that runs live sessions takes that lock.
-11. `tests/` must pass: `python -m unittest discover tests`. Test first for money or safety changes.
+11. The software stays free, self-run and open source. Never add a hosted service, accounts, fees, prizes, broker connections
+    or shipped price data.
+12. `tests/` must pass: `python -m unittest discover tests`. Test first for money or safety changes.
 
 ## Development agents and skills
 

@@ -328,6 +328,12 @@ class Wording(unittest.TestCase):
         for p in ("arena/web/index.html", "arena/report.py", "README.md", "DISCLAIMER.md", "site/index.html"):
             self.assertTrue("not registered with sebi" in low(p), p)
             self.assertTrue("education" in low(p), p)
+        # free software each person runs, never a hosted platform; courses teach, never tip
+        for p, needs in (("README.md", ("open source", "own computer", "no hosted service", "sebi-registered broker", "do not include stock tips")),
+                         ("DISCLAIMER.md", ("open-source software", "own computer", "hosts no trading platform", "sebi-registered broker",
+                                            "do not provide stock tips"))):
+            for need in needs:
+                self.assertTrue(need in low(p), (p, need))
         for need in ("pr no. 27/2024", "ho/47/17/12(11)2025-mrd-pod3/i/11107/2026", "30 days", "smartodr", "scores"):
             self.assertTrue(need in low("DISCLAIMER.md"), need)
 
