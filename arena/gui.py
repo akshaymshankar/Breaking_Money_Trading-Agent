@@ -535,7 +535,7 @@ def serve(port: int = 8787, open_browser: bool = True, config_path=None) -> None
     one.set_port(p)
     threading.Thread(target=autopilot.run_forever, args=(ctl.autopilot, ctl._claude_info), daemon=True, name="autopilot").start()
     url = f"http://127.0.0.1:{p}/"
-    print(f"\n  Breaking Money · AI Trading Arena is running at {url}\n  Keep this window open. Close it to quit.\n")
+    print(f"\n  AI Trading Arena is running at {url}\n  Keep this window open. Close it to quit.\n")
     if open_browser:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
     try:

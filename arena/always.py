@@ -21,7 +21,8 @@ log = logging.getLogger("arena")
 
 ALREADY_OPEN = 3          # exit code under keep_running: another copy has the journal
 DEFAULT_PORT = 8787
-SHORTCUT = "Breaking Money Arena.lnk"
+SHORTCUT = "Trading Arena.lnk"
+OLD_SHORTCUTS = ("Breaking Money Arena.lnk",)  # earlier name, still removed by "off"
 
 
 class OneCopy:
@@ -121,7 +122,7 @@ def keep_running(port: int = DEFAULT_PORT, start=None, sleep=time.sleep, clock=t
         return subprocess.Popen([sys.executable, "-m", "arena", "gui", "--no-open", "--port", str(port)], cwd=str(ROOT),
                                 env={**os.environ, "ARENA_SUPERVISED": "1"})
     start, fails = start or open_app, 0
-    print("\n  Breaking Money Arena is kept running from this window. Close it to stop the app.\n")
+    print("\n  Trading Arena is kept running from this window. Close it to stop the app.\n")
     try:
         while True:
             t0, p = clock(), start()
@@ -160,7 +161,7 @@ def autostart_on(folder: Path | None = None) -> Path:
     link.parent.mkdir(parents=True, exist_ok=True)
     script = ("$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:ARENA_LINK);$s.TargetPath=$env:ARENA_PY;"
               "$s.Arguments='-m arena always';$s.WorkingDirectory=$env:ARENA_ROOT;$s.WindowStyle=7;"
-              "$s.Description='Breaking Money Arena, paper trading';$s.Save()")
+              "$s.Description='Trading Arena, paper trading';$s.Save()")
     r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True, text=True, timeout=60,
                        env={**os.environ, "ARENA_LINK": str(link), "ARENA_PY": str(py), "ARENA_ROOT": str(ROOT)})
     if r.returncode != 0 or not link.exists():
@@ -169,8 +170,9 @@ def autostart_on(folder: Path | None = None) -> Path:
 
 
 def autostart_off(folder: Path | None = None) -> None:
-    (folder or startup_folder()).joinpath(SHORTCUT).unlink(missing_ok=True)
+    for name in (SHORTCUT, *OLD_SHORTCUTS):
+        (folder or startup_folder()).joinpath(name).unlink(missing_ok=True)
 
 
 def autostart_state(folder: Path | None = None) -> bool:
-    return os.name == "nt" and (folder or startup_folder()).joinpath(SHORTCUT).exists()
+    return os.name == "nt" and any((folder or startup_folder()).joinpath(n).exists() for n in (SHORTCUT, *OLD_SHORTCUTS))

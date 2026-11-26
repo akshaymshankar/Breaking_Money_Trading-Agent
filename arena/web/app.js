@@ -1,4 +1,4 @@
-/* Breaking Money · Trading Arena — client */
+/* Trading Arena: client */
 (() => {
 "use strict";
 

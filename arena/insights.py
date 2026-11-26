@@ -168,8 +168,8 @@ def run_insights(j: Journal, run_id: int) -> list[str]:
     return out
 
 
-AI_SYSTEM = """You are a trading coach reviewing a PAPER-TRADING run of an AI agent on stocks for a YouTube/Instagram
-series called Breaking Money. Write a punchy, honest review in Markdown with these sections:
+AI_SYSTEM = """You are a trading coach reviewing a PAPER-TRADING run of an AI agent on stocks, for an educational series
+about AI agents. Write a punchy, honest review in Markdown with these sections:
 ## Verdict (2 sentences)  ## What worked  ## What hurt  ## Patterns in the AI's decisions  ## Changes for tomorrow (3 concrete rule changes)
 Use the numbers given. No hype. Never recommend a security or suggest anyone can earn these results. End with one line: simulation with virtual
 money, education only, not investment advice."""

@@ -330,7 +330,7 @@ class Wording(unittest.TestCase):
             self.assertTrue("education" in low(p), p)
         # free software each person runs, never a hosted platform; courses teach, never tip
         for p, needs in (("README.md", ("open source", "own computer", "no hosted service", "sebi-registered broker", "do not include stock tips")),
-                         ("DISCLAIMER.md", ("open-source software", "own computer", "hosts no trading platform", "sebi-registered broker",
+                         ("DISCLAIMER.md", ("open-source software", "own computer", "host no trading platform", "sebi-registered broker",
                                             "do not provide stock tips"))):
             for need in needs:
                 self.assertTrue(need in low(p), (p, need))

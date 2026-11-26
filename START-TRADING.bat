@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableDelayedExpansion
-title Breaking Money - AI Trading Arena
+title AI Trading Arena
 cd /d "%~dp0"
 
 rem Find Python 3.11 or newer. Tries PATH, the py launcher, then the usual install folders.

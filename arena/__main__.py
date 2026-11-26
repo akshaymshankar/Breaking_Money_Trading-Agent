@@ -314,7 +314,7 @@ def cmd_autostart(a, cfg):
 
 def main(argv=None):
     load_env()
-    p = argparse.ArgumentParser(prog="arena", description="Breaking Money AI Trading Arena (paper trading only)")
+    p = argparse.ArgumentParser(prog="arena", description="AI Trading Arena (paper trading only)")
     p.add_argument("--config", help="path to config.toml")
     sub = p.add_subparsers(dest="cmd", required=True)
 

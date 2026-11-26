@@ -173,7 +173,7 @@ def main() -> None:
         say("Install it from https://www.python.org/downloads/ and run this again.")
         sys.exit(1)
 
-    print("\n  Breaking Money · AI Trading Arena · paper trading, virtual money only")
+    print("\n  AI Trading Arena · paper trading, virtual money only")
     os.chdir(ROOT)
     setup_env()
     if skip_claude:

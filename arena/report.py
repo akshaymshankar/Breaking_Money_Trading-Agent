@@ -281,7 +281,7 @@ footer{color:var(--muted);font-size:11px;margin-top:24px;text-align:center}
 @media (max-width:860px){.card,.card.third{grid-column:1/-1}.hero .big{font-size:32px}}
 </style></head><body><div class="wrap">
 <header>
-  <div><div class="brand">Breaking Money · AI Trading Arena</div><h1>{{NAME}}</h1><div class="sub">{{SUB}}</div></div>
+  <div><div class="brand">AI Trading Arena</div><h1>{{NAME}}</h1><div class="sub">{{SUB}}</div></div>
   <div class="badges"><span class="badge paper">PAPER ONLY · VIRTUAL {{CUR}}</span><span class="badge {{STATUSCLS}}">{{STATUS}}</span></div>
 </header>
 <div class="grid">
@@ -308,7 +308,7 @@ footer{color:var(--muted);font-size:11px;margin-top:24px;text-align:center}
 <section class="card wide"><h2>Trade log</h2><div class="tbl">{{TRADES}}</div></section>
 <section class="card wide"><h2>Leaderboard <small>all runs in this database</small></h2><div class="tbl"><table><tr><th>Run</th><th>Name</th><th>Brain</th><th>Mode</th><th>Realised P&amp;L</th><th>Return</th><th>Status</th></tr>{{BOARD}}</table></div></section>
 </div>
-<footer>Simulation only. Virtual money, real prices, modelled slippage and {{FEES}}. No real orders are ever placed. Education only, not investment advice or a recommendation on any security. Breaking Money is not registered with SEBI. Simulated results do not predict real results.</footer>
+<footer>Simulation only. Virtual money, real prices, modelled slippage and {{FEES}}. No real orders are ever placed. Education only, not investment advice or a recommendation on any security. The authors are not registered with SEBI. Simulated results do not predict real results.</footer>
 </div>
 <script>
 const D={{DATA}};

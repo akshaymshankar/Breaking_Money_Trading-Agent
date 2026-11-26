@@ -2,8 +2,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Week One</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="Breaking Money · Week One: learn AI agents with a Claude paper trading setup. Education only.">
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"%3E%3Ccircle cx="50" cy="50" r="49" fill="%23000"/%3E%3Ccircle cx="50" cy="50" r="45.2" fill="none" stroke="%23b5f01f" stroke-width="1.6"/%3E%3Cg font-family="Inter, Helvetica, Arial, sans-serif" fill="%23f7f4e8"%3E%3Crect x="21" y="23.8" width="30" height="26.6" fill="%23033a10" stroke="%23f7f4e8" stroke-width=".9"/%3E%3Ctext x="23.2" y="29.6" font-size="3.6" font-weight="700"%3E35%3C/text%3E%3Ctext x="48.8" y="29.6" font-size="3.2" text-anchor="end"%3E79.90%3C/text%3E%3Ctext x="36" y="45.6" font-size="14" font-weight="700" text-anchor="middle" letter-spacing="-.4"%3EBr%3C/text%3E%3Crect x="46.8" y="50.7" width="30" height="27.4" fill="%23033a10" stroke="%23f7f4e8" stroke-width=".9"/%3E%3Ctext x="49" y="56.6" font-size="3.6" font-weight="700"%3E42%3C/text%3E%3Ctext x="74.6" y="56.6" font-size="3.2" text-anchor="end"%3E95.96%3C/text%3E%3Ctext x="61.8" y="73" font-size="14" font-weight="700" text-anchor="middle" letter-spacing="-.4"%3EMo%3C/text%3E%3C/g%3E%3C/svg%3E">
+<meta name="description" content="Week One: learn AI agents with a Claude paper trading setup. Education only.">
+<link rel="icon" type="image/svg+xml" href="logo.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap">
@@ -136,7 +136,7 @@ section { padding-block: 88px; }
 .mk .meta span { font-size: 13px; color: var(--soft); background: var(--tint); padding: 6px 10px; border-radius: 999px; }
 @media (max-width: 760px) { .markets { grid-template-columns: minmax(0, 1fr); } }
 
-.links3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.links3 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .lk { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 24px; display: grid; gap: 28px; transition: transform .15s, box-shadow .15s, border-color .15s; }
 .lk:hover { transform: translateY(-2px); box-shadow: var(--shadow); border-color: var(--brand); }
 .lk .row { display: flex; justify-content: space-between; align-items: center; }
@@ -200,10 +200,9 @@ footer a:hover { color: var(--ink); }
 
 <div class="wrap nav">
   <nav class="bar" aria-label="Main">
-    <a class="logo" href="#week-one" aria-label="Breaking Money home"><svg class="mark" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="49" fill="#000"/><circle cx="50" cy="50" r="45.2" fill="none" stroke="#b5f01f" stroke-width="1.6"/><g font-family="Inter, Helvetica, Arial, sans-serif" fill="#f7f4e8"><rect x="21" y="23.8" width="30" height="26.6" fill="#033a10" stroke="#f7f4e8" stroke-width=".9"/><text x="23.2" y="29.6" font-size="3.6" font-weight="700">35</text><text x="48.8" y="29.6" font-size="3.2" text-anchor="end">79.90</text><text x="36" y="45.6" font-size="14" font-weight="700" text-anchor="middle" letter-spacing="-.4">Br</text><rect x="46.8" y="50.7" width="30" height="27.4" fill="#033a10" stroke="#f7f4e8" stroke-width=".9"/><text x="49" y="56.6" font-size="3.6" font-weight="700">42</text><text x="74.6" y="56.6" font-size="3.2" text-anchor="end">95.96</text><text x="61.8" y="73" font-size="14" font-weight="700" text-anchor="middle" letter-spacing="-.4">Mo</text></g></svg><span>Breaking Money</span></a>
+    <a class="logo" href="#week-one" aria-label="Trading Arena home"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="12" fill="var(--brand)"/><path d="M6 15l4-4 3 3 5-6" fill="none" stroke="var(--brand-ink)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Trading Arena</span></a>
     <a class="l" href="#week-one" data-view="week-one">Week One</a>
     <a class="l" href="#setup" data-view="setup">Setup guide</a>
-    <a class="l" href="https://breakingmoney.in" target="_blank" rel="noopener">Website</a>
     <a class="btn sm go" href="#contact">Contact</a>
   </nav>
 </div>
@@ -266,7 +265,6 @@ footer a:hover { color: var(--ink); }
       <div class="links3">
         <a class="lk rv" href="#setup"><div class="row"><span class="ic"><svg viewBox="0 0 24 24"><path d="M5 4h10l4 4v12H5z"/><path d="M9 12h6M9 16h6"/></svg></span><span class="arr">→</span></div><div><h3>Setup guide</h3><p>4 steps, about 5 minutes</p></div></a>
         <a class="lk rv" href="https://github.com/akshaymshankar/Breaking_Money_Trading-Agent" target="_blank" rel="noopener"><div class="row"><span class="ic"><svg viewBox="0 0 24 24"><path d="M9 18c-4 1.3-4-2-6-2.5M15 21v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1-.3-3.4 1.3a11.6 11.6 0 0 0-6 0C6.8 2.8 5.8 3.1 5.8 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4.4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></svg></span><span class="arr">↗</span></div><div><h3>GitHub</h3><p>Full source code</p></div></a>
-        <a class="lk rv" href="https://breakingmoney.in" target="_blank" rel="noopener"><div class="row"><span class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></span><span class="arr">↗</span></div><div><h3>breakingmoney.in</h3><p>Our website</p></div></a>
       </div>
     </div>
   </section>
@@ -320,7 +318,7 @@ footer a:hover { color: var(--ink); }
   <div class="wrap">
     <div class="contact rv">
       <h2>Contact</h2>
-      <p>For help with the setup, message <a href="https://ig.me/m/its.breaking.money" target="_blank" rel="noopener">@its.breaking.money</a> on Instagram or email <span>hello@breakingmoney.in</span> <button class="copy" type="button" data-copy="hello@breakingmoney.in">Copy</button></p>
+      <p>For help with the setup, <a href="https://github.com/akshaymshankar/Breaking_Money_Trading-Agent/issues" target="_blank" rel="noopener">open an issue on GitHub</a>.</p>
     </div>
   </div>
 </section>
@@ -328,7 +326,7 @@ footer a:hover { color: var(--ink); }
 <div class="note">
   <div class="wrap">
     <div class="box">
-      <p><b>Note:</b> Breaking Money is not registered with SEBI. This is education on AI and technology, not investment advice or a recommendation on any security.</p>
+      <p><b>Note:</b> The authors are not registered with SEBI. This is education on AI and technology, not investment advice or a recommendation on any security.</p>
       <p>Paper trading with virtual money only. Simulated results are not real results. Investments in the securities market are subject to market risks. SEBI has warned the public about paper-trading apps (PR No. 27/2024): <a href="https://github.com/akshaymshankar/Breaking_Money_Trading-Agent/blob/main/DISCLAIMER.md" target="_blank" rel="noopener">read the full disclaimer</a>.</p>
     </div>
   </div>
@@ -336,8 +334,8 @@ footer a:hover { color: var(--ink); }
 
 <footer>
   <div class="wrap">
-    <span class="foot-brand"><svg class="mark" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="49" fill="#000"/><circle cx="50" cy="50" r="45.2" fill="none" stroke="#b5f01f" stroke-width="1.6"/><g font-family="Inter, Helvetica, Arial, sans-serif" fill="#f7f4e8"><rect x="21" y="23.8" width="30" height="26.6" fill="#033a10" stroke="#f7f4e8" stroke-width=".9"/><text x="23.2" y="29.6" font-size="3.6" font-weight="700">35</text><text x="48.8" y="29.6" font-size="3.2" text-anchor="end">79.90</text><text x="36" y="45.6" font-size="14" font-weight="700" text-anchor="middle" letter-spacing="-.4">Br</text><rect x="46.8" y="50.7" width="30" height="27.4" fill="#033a10" stroke="#f7f4e8" stroke-width=".9"/><text x="49" y="56.6" font-size="3.6" font-weight="700">42</text><text x="74.6" y="56.6" font-size="3.2" text-anchor="end">95.96</text><text x="61.8" y="73" font-size="14" font-weight="700" text-anchor="middle" letter-spacing="-.4">Mo</text></g></svg>© Breaking Money</span>
-    <span><a href="https://breakingmoney.in" target="_blank" rel="noopener">breakingmoney.in</a> · <a href="https://github.com/akshaymshankar/Breaking_Money_Trading-Agent" target="_blank" rel="noopener">GitHub</a> · <a href="https://instagram.com/its.breaking.money" target="_blank" rel="noopener">Instagram</a></span>
+    <span class="foot-brand"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="12" fill="var(--brand)"/><path d="M6 15l4-4 3 3 5-6" fill="none" stroke="var(--brand-ink)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Trading Arena</span>
+    <span><a href="https://github.com/akshaymshankar/Breaking_Money_Trading-Agent" target="_blank" rel="noopener">GitHub</a></span>
   </div>
 </footer>
 
